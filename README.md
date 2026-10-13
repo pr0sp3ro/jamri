@@ -35,14 +35,6 @@ defaulting to `~/.local/share/tickd/tickd.sqlite3`. Relative `XDG_DATA_HOME`
 values are ignored. The `entries` table stores task names and Unix timestamps
 in seconds. `ended_at = NULL` marks the active task. History can be displayed with `history`.
 
-## dmenu example
-
-```sh
-name=$(printf '\n' | dmenu -p 'Task:') || exit
-[ -n "$name" ] || exit
-tickd start "$name"
-```
-
 ## History
 
 ```sh
@@ -73,3 +65,61 @@ Times are clipped to each day, with `24:00` marking its end. Active entries
 are counted up to now. Durations show full minutes. Daily totals are calculated
 from seconds before rounding, so they may differ from the sum of displayed minutes.
 Days without entries are omitted. An empty result prints `No entries.`.
+
+## dmenu example
+
+```sh
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+choice=$(printf 'start\nstop\n' | dmenu -i -p 'tickd:' "$@") || exit 0
+
+case "$choice" in
+  start)
+      name=$(dmenu -p 'Task:' "$@" </dev/null) || exit 0
+      [[ -n "$name" ]] || exit 0
+      tickd start "$name"
+      ;;
+  stop)
+      tickd stop
+      notify-send 'tickd' 'Task stopped.'
+      ;;
+esac
+```
+
+## i3status example
+
+```sh
+#!/bin/sh
+
+CONFIG="$HOME/.config/i3status/config"
+
+i3status --config "$CONFIG" | {
+  read -r line && printf '%s\n' "$line"
+  read -r line && printf '%s\n' "$line"
+
+  while read -r line; do
+      prefix=""
+      case "$line" in
+          ,*)
+              prefix=","
+              line=${line#,}
+              ;;
+      esac
+
+      tickd_status=$(tickd status 2>/dev/null) || tickd_status="unavailable"
+
+      case "$line" in
+          ""|"[" )
+              printf '%s%s\n' "$prefix" "$line"
+              continue
+              ;;
+      esac
+
+      line=$(printf '%s\n' "$line" | jq -c --arg tickd "$tickd_status" \
+          '[{name: "tickd", full_text: $tickd}] + .')
+      printf '%s%s\n' "$prefix" "$line"
+  done
+}
+```

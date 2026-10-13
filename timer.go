@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -25,5 +26,9 @@ func readStatus(db *sql.DB) (string, error) {
 	}
 
 	elapsedSeconds := max(int64(0), time.Now().Unix()-startedAt)
-	return name + "  " + formatDuration(elapsedSeconds), nil
+	hours := elapsedSeconds / 3600
+	minutes := elapsedSeconds / 60 % 60
+	seconds := elapsedSeconds % 60
+
+	return fmt.Sprintf("%s  %02d:%02d:%02d", name, hours, minutes, seconds), nil
 }

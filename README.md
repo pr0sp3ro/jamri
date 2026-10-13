@@ -7,11 +7,11 @@ Go timer with SQLite history.
 Requires Go and a C compiler (CGO).
 
 ```sh
-CGO_ENABLED=1 go build -o tickd .
-install -m 755 tickd ~/.local/bin/tickd
+./install.sh
 ```
 
 Make sure `~/.local/bin` is in your `PATH`.
+The script rebuilds tickd and installs it to `~/.local/bin`.
 
 ## Usage
 
@@ -26,8 +26,8 @@ tickd --help
 `start` closes the active entry and creates a new one, even with the same name.
 `stop` does nothing when no task is active. Both commands are silent on success.
 
-`status` prints `dev 01:23` (hours and full minutes), or `idle`.
-Configure your statusbar to run `tickd status` periodically, for example every minute.
+`status` prints `dev  01:23:45` (hours, minutes, and seconds), or `idle`.
+Configure your statusbar to run `tickd status` every second to display second updates.
 
 Elapsed time includes sleep and shutdown until `stop` or another `start`.
 The database is created automatically at `$XDG_DATA_HOME/tickd/tickd.sqlite3`,

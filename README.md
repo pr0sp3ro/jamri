@@ -88,6 +88,12 @@ case "$choice" in
 esac
 ```
 
+Then you can bind it to a key in your window manager, for example in i3/sway:
+
+```text
+bindsym $mod+t exec --no-startup-id "dm-tickd"
+```
+
 ## i3status example
 
 ```sh

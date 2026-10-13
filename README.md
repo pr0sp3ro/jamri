@@ -19,6 +19,7 @@ Make sure `~/.local/bin` is in your `PATH`.
 tickd start "dev"
 tickd stop
 tickd status
+tickd history
 tickd --help
 ```
 
@@ -32,8 +33,7 @@ Elapsed time includes sleep and shutdown until `stop` or another `start`.
 The database is created automatically at `$XDG_DATA_HOME/tickd/tickd.sqlite3`,
 defaulting to `~/.local/share/tickd/tickd.sqlite3`. Relative `XDG_DATA_HOME`
 values are ignored. The `entries` table stores task names and Unix timestamps
-in seconds. `ended_at = NULL` marks the active task. History stays in SQLite,
-with no reporting command yet.
+in seconds. `ended_at = NULL` marks the active task. History can be displayed with `history`.
 
 ## dmenu example
 
@@ -42,3 +42,34 @@ name=$(printf '\n' | dmenu -p 'Task:') || exit
 [ -n "$name" ] || exit
 tickd start "$name"
 ```
+
+## History
+
+```sh
+tickd history                        # today
+tickd history today
+tickd history yesterday
+tickd history week                   # current week, starting Monday
+tickd history month                  # current calendar month
+tickd history 2026-10-10
+tickd history 2026-10-01 2026-10-10  # inclusive date range
+```
+
+Dates use the local timezone. Each day with entries gets its own section:
+
+```text
+DATE
+YYYY-MM-DD
+
+START  END     DURATION  TASK
+09:00  10:30   01:30     dev
+10:45  active  00:25     documentation
+
+Total: 01:55
+```
+
+Entries crossing midnight are split into daily portions for display only.
+Times are clipped to each day, with `24:00` marking its end. Active entries
+are counted up to now. Durations show full minutes. Daily totals are calculated
+from seconds before rounding, so they may differ from the sum of displayed minutes.
+Days without entries are omitted. An empty result prints `No entries.`.

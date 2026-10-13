@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -12,6 +13,7 @@ const usage = `Usage:
   tickd start "task name"
   tickd stop
   tickd status
+  tickd history [today|yesterday|week|month|YYYY-MM-DD [YYYY-MM-DD]]
   tickd help
 `
 
@@ -34,6 +36,16 @@ func run(args []string) error {
 		return err
 	}
 
+	var from, until time.Time
+
+	if command == "history" {
+		from, until, err = historyRange(args[1:], time.Now())
+
+		if err != nil {
+			return err
+		}
+	}
+
 	db, err := openDatabase()
 
 	if err != nil {
@@ -47,6 +59,8 @@ func run(args []string) error {
 		return startTask(db, args[1])
 	case "stop":
 		return stopTask(db)
+	case "history":
+		return printHistory(db, from, until)
 	case "status":
 		line, err := readStatus(db)
 
@@ -72,6 +86,10 @@ func validateArguments(args []string) (string, error) {
 	case "help", "--help", "stop", "status":
 		if len(args) != 1 {
 			return "", fmt.Errorf("%s does not accept arguments", command)
+		}
+	case "history":
+		if len(args) > 3 {
+			return "", errors.New("history accepts a period, a date, or two dates")
 		}
 	case "start":
 		if len(args) != 2 || strings.TrimSpace(args[1]) == "" {

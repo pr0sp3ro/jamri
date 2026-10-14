@@ -29,11 +29,36 @@ tickd --help
 `status` prints `dev  01:23:45` (hours, minutes, and seconds), or `idle`.
 Configure your statusbar to run `tickd status` every second to display second updates.
 
-Elapsed time includes sleep and shutdown until `stop` or another `start`.
-The database is created automatically at `$XDG_DATA_HOME/tickd/tickd.sqlite3`,
-defaulting to `~/.local/share/tickd/tickd.sqlite3`. Relative `XDG_DATA_HOME`
-values are ignored. The `entries` table stores task names and Unix timestamps
-in seconds. `ended_at = NULL` marks the active task. History can be displayed with `history`.
+Elapsed time includes sleep and shutdown until the task is stopped.
+The optional shutdown service can stop tasks automatically on normal shutdown.
+
+## Storage
+
+The SQLite database is created automatically at
+`$XDG_DATA_HOME/tickd/tickd.sqlite3`, defaulting to
+`~/.local/share/tickd/tickd.sqlite3`. Relative `XDG_DATA_HOME` values are ignored.
+
+## Optional shutdown stop
+
+Requires a systemd user manager. Enable automatic task stopping with:
+
+```sh
+./enable-shutdown-stop.sh
+```
+
+The service runs no background process. It stops the active task when the user
+manager shuts down, including normal shutdown, reboot, and usually logout.
+Sudden power loss and forced shutdown are not covered.
+
+The service uses the database location selected by `XDG_DATA_HOME` when enabled.
+
+Disable with:
+
+```sh
+systemctl --user disable --now tickd-stop.service
+```
+
+Disabling the running service also stops the active task.
 
 ## History
 

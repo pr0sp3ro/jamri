@@ -1,0 +1,12 @@
+[Unit]
+Description=Stop the active tickd task when the user manager shuts down
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/true
+ExecStop=%h/.local/bin/tickd stop
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

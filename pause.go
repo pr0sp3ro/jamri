@@ -1,12 +1,56 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"errors"
+	"fmt"
+	"os"
+	"strings"
 	"time"
+	"unicode"
 )
 
-func togglePause(db *sql.DB) error {
+func pauseTask(db *sql.DB, args []string) error {
+	var taskID int64
+	err := db.QueryRow(`
+		SELECT id FROM tasks
+		WHERE ended_at IS NULL
+		  AND NOT EXISTS (SELECT 1 FROM pauses WHERE ended_at IS NULL)
+	`).Scan(&taskID)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return errors.New("no running task to pause")
+	}
+
+	if err != nil {
+		return err
+	}
+
+	reason := ""
+
+	if len(args) == 1 {
+		reason = args[0]
+	} else {
+		if _, err := fmt.Fprint(os.Stderr, "Pause reason (optional): "); err != nil {
+			return err
+		}
+
+		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+
+		if err != nil {
+			return fmt.Errorf("pause cancelled: %w", err)
+		}
+
+		reason = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+	}
+
+	for _, character := range reason {
+		if unicode.IsControl(character) || character == '\u2028' || character == '\u2029' {
+			return errors.New("pause reason must be a single line without control characters")
+		}
+	}
+
 	tx, err := db.Begin()
 
 	if err != nil {
@@ -14,53 +58,52 @@ func togglePause(db *sql.DB) error {
 	}
 
 	defer tx.Rollback()
-	var name string
-	var elapsedSeconds int64
-	var pausedAt sql.NullInt64
-	err = tx.QueryRow("SELECT name, elapsed_seconds, paused_at FROM task_state WHERE id = 1").Scan(&name, &elapsedSeconds, &pausedAt)
+	result, err := tx.Exec(`
+		INSERT INTO pauses (task_id, started_at, reason)
+		SELECT id, MAX(started_at, ?), ? FROM tasks
+		WHERE id = ? AND ended_at IS NULL
+		  AND NOT EXISTS (SELECT 1 FROM pauses WHERE ended_at IS NULL)
+	`, time.Now().Unix(), reason, taskID)
 
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err != nil {
 		return err
 	}
 
-	now := time.Now().Unix()
+	count, err := result.RowsAffected()
 
-	if pausedAt.Valid {
-		if _, err := tx.Exec("INSERT INTO entries (name, started_at) VALUES (?, ?)", name, now); err != nil {
-			return err
-		}
+	if err != nil {
+		return err
+	}
 
-		if _, err := tx.Exec("UPDATE task_state SET paused_at = NULL WHERE id = 1"); err != nil {
-			return err
-		}
-	} else {
-		var startedAt int64
-		err = tx.QueryRow("SELECT name, started_at FROM entries WHERE ended_at IS NULL").Scan(&name, &startedAt)
+	if count != 1 {
+		return errors.New("task changed while entering the reason, pause cancelled")
+	}
 
-		if errors.Is(err, sql.ErrNoRows) {
-			return errors.New("no active task to pause")
-		}
+	return tx.Commit()
+}
 
-		if err != nil {
-			return err
-		}
+func resumeTask(db *sql.DB) error {
+	tx, err := db.Begin()
 
-		elapsedSeconds += max(int64(0), now-startedAt)
+	if err != nil {
+		return err
+	}
 
-		if _, err := tx.Exec("UPDATE entries SET ended_at = ? WHERE ended_at IS NULL", now); err != nil {
-			return err
-		}
+	defer tx.Rollback()
+	result, err := tx.Exec("UPDATE pauses SET ended_at = MAX(started_at, ?) WHERE ended_at IS NULL", time.Now().Unix())
 
-		if _, err := tx.Exec(`
-			INSERT INTO task_state (id, name, elapsed_seconds, paused_at)
-			VALUES (1, ?, ?, ?)
-			ON CONFLICT(id) DO UPDATE SET
-			    name = excluded.name,
-			    elapsed_seconds = excluded.elapsed_seconds,
-			    paused_at = excluded.paused_at
-		`, name, elapsedSeconds, now); err != nil {
-			return err
-		}
+	if err != nil {
+		return err
+	}
+
+	count, err := result.RowsAffected()
+
+	if err != nil {
+		return err
+	}
+
+	if count == 0 {
+		return errors.New("no paused task to resume")
 	}
 
 	return tx.Commit()

@@ -33,6 +33,7 @@ func openDatabase() (*sql.DB, error) {
 	query := url.Values{}
 	query.Set("_busy_timeout", "5000")
 	query.Set("_txlock", "immediate")
+	query.Set("_foreign_keys", "on")
 	dsn.RawQuery = query.Encode()
 	db, err := sql.Open("sqlite3", dsn.String())
 
@@ -42,24 +43,29 @@ func openDatabase() (*sql.DB, error) {
 
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`
-CREATE TABLE IF NOT EXISTS entries (
+CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     started_at INTEGER NOT NULL,
     ended_at INTEGER
 );
-CREATE TABLE IF NOT EXISTS task_state (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    name TEXT NOT NULL,
-    elapsed_seconds INTEGER NOT NULL,
-    paused_at INTEGER
+CREATE TABLE IF NOT EXISTS pauses (
+    id INTEGER PRIMARY KEY,
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    reason TEXT NOT NULL DEFAULT ''
 );
-CREATE UNIQUE INDEX IF NOT EXISTS entries_one_active
-    ON entries ((1)) WHERE ended_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_one_active
+    ON tasks ((1)) WHERE ended_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS pauses_one_active
+    ON pauses ((1)) WHERE ended_at IS NULL;
+CREATE INDEX IF NOT EXISTS pauses_task ON pauses (task_id, started_at);
 `)
 
 	if err != nil {
 		db.Close()
+
 		return nil, err
 	}
 
@@ -76,15 +82,11 @@ func startTask(db *sql.DB, name string) error {
 	defer tx.Rollback()
 	now := time.Now().Unix()
 
-	if _, err := tx.Exec("UPDATE entries SET ended_at = ? WHERE ended_at IS NULL", now); err != nil {
+	if err := closeTask(tx, now); err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec("DELETE FROM task_state"); err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec("INSERT INTO entries (name, started_at) VALUES (?, ?)", name, now); err != nil {
+	if _, err := tx.Exec("INSERT INTO tasks (name, started_at) VALUES (?, ?)", name, now); err != nil {
 		return err
 	}
 
@@ -100,13 +102,19 @@ func stopTask(db *sql.DB) error {
 
 	defer tx.Rollback()
 
-	if _, err := tx.Exec("UPDATE entries SET ended_at = ? WHERE ended_at IS NULL", time.Now().Unix()); err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec("DELETE FROM task_state"); err != nil {
+	if err := closeTask(tx, time.Now().Unix()); err != nil {
 		return err
 	}
 
 	return tx.Commit()
+}
+
+func closeTask(tx *sql.Tx, now int64) error {
+	if _, err := tx.Exec("UPDATE pauses SET ended_at = MAX(started_at, ?) WHERE ended_at IS NULL", now); err != nil {
+		return err
+	}
+
+	_, err := tx.Exec("UPDATE tasks SET ended_at = MAX(started_at, ?) WHERE ended_at IS NULL", now)
+
+	return err
 }

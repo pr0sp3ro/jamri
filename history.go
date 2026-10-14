@@ -27,9 +27,11 @@ func historyRange(args []string, now time.Time) (time.Time, time.Time, error) {
 		case "week":
 			daysSinceMonday := (int(today.Weekday()) + 6) % 7
 			from := today.AddDate(0, 0, -daysSinceMonday)
+
 			return from, from.AddDate(0, 0, 7), nil
 		case "month":
 			from := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
+
 			return from, from.AddDate(0, 1, 0), nil
 		}
 	}
@@ -57,67 +59,183 @@ func historyRange(args []string, now time.Time) (time.Time, time.Time, error) {
 	return from, lastDay.AddDate(0, 0, 1), nil
 }
 
-func printHistory(db *sql.DB, from, until time.Time) error {
-	now := time.Now().Unix()
+func historyArguments(args []string) ([]string, bool, error) {
+	var dates []string
+	details := false
+
+	for _, argument := range args {
+		if argument == "--details" {
+			if details {
+				return nil, false, errors.New("--details specified more than once")
+			}
+
+			details = true
+		} else {
+			dates = append(dates, argument)
+		}
+	}
+
+	if len(dates) > 2 {
+		return nil, false, errors.New("history accepts a period, a date, or two dates")
+	}
+
+	return dates, details, nil
+}
+
+type historyPause struct {
+	start  int64
+	end    sql.NullInt64
+	reason string
+}
+
+type historyTask struct {
+	id     int64
+	name   string
+	start  int64
+	end    sql.NullInt64
+	pauses []historyPause
+}
+
+func readHistory(db *sql.DB, from, until time.Time, now int64) ([]historyTask, error) {
 	rows, err := db.Query(`
-		SELECT name, started_at, ended_at
-		FROM entries
-		WHERE started_at < ?
-		  AND (COALESCE(ended_at, ?) > ? OR started_at >= ?)
-		ORDER BY started_at, id
-	`, until.Unix(), now, from.Unix(), from.Unix())
+ SELECT t.id, t.name, t.started_at, t.ended_at,
+        p.started_at, p.ended_at, p.reason
+ FROM tasks t LEFT JOIN pauses p ON p.task_id = t.id
+ WHERE t.started_at < ?
+   AND (COALESCE(t.ended_at, ?) > ? OR t.started_at >= ?)
+ ORDER BY t.started_at, t.id, p.started_at, p.id
+ `, until.Unix(), now, from.Unix(), from.Unix())
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+	var tasks []historyTask
+
+	for rows.Next() {
+		var task historyTask
+		var pauseStart, pauseEnd sql.NullInt64
+		var reason sql.NullString
+
+		if err := rows.Scan(&task.id, &task.name, &task.start, &task.end, &pauseStart, &pauseEnd, &reason); err != nil {
+			return nil, err
+		}
+
+		if len(tasks) == 0 || tasks[len(tasks)-1].id != task.id {
+			tasks = append(tasks, task)
+		}
+
+		if pauseStart.Valid {
+			last := &tasks[len(tasks)-1]
+			last.pauses = append(last.pauses, historyPause{pauseStart.Int64, pauseEnd, reason.String})
+		}
+	}
+
+	return tasks, rows.Err()
+}
+
+type historyDay struct {
+	lines  []string
+	work   int64
+	pauses int64
+}
+
+func printHistory(db *sql.DB, from, until time.Time, details bool) error {
+	now := time.Now().Unix()
+	tasks, err := readHistory(db, from, until, now)
 
 	if err != nil {
 		return err
 	}
 
-	defer rows.Close()
-	// Buffer day sections because overlapping entries can span multiple days.
-	sections := make(map[string][]string)
-	totals := make(map[string]int64)
+	days := make(map[string]*historyDay)
 
-	for rows.Next() {
-		var name string
-		var startedAt int64
-		var endedAt sql.NullInt64
-
-		if err := rows.Scan(&name, &startedAt, &endedAt); err != nil {
-			return err
-		}
-
+	for _, task := range tasks {
 		end := now
 
-		if endedAt.Valid {
-			end = endedAt.Int64
+		if task.end.Valid {
+			end = task.end.Int64
 		}
 
-		// A backwards clock must not produce a negative duration.
-		end = max(end, startedAt)
-		start := max(startedAt, from.Unix())
-		end = min(end, until.Unix())
+		end = min(max(end, task.start), until.Unix())
+		start := max(task.start, from.Unix())
 
-		if start >= until.Unix() || end < start {
+		if end < start || start >= until.Unix() {
 			continue
 		}
 
 		for {
 			localStart := time.Unix(start, 0).In(from.Location())
-			day := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, from.Location())
-			nextDay := day.AddDate(0, 0, 1)
-			segmentEnd := min(end, nextDay.Unix())
-			date := day.Format("2006-01-02")
-			endLabel := time.Unix(segmentEnd, 0).In(from.Location()).Format("15:04")
+			dayStart := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, from.Location())
+			nextDay := dayStart.AddDate(0, 0, 1).Unix()
+			segmentEnd := min(end, nextDay)
+			date := dayStart.Format("2006-01-02")
+			day := days[date]
 
-			if segmentEnd == nextDay.Unix() {
-				endLabel = "24:00"
-			} else if !endedAt.Valid && segmentEnd == now {
-				endLabel = "active"
+			if day == nil {
+				day = &historyDay{}
+				days[date] = day
 			}
 
-			duration := segmentEnd - start
-			line := fmt.Sprintf("%s\t%s\t%s\t%s\n", localStart.Format("15:04"), endLabel, formatDuration(duration), name)
-			sections[date] = append(sections[date], line)
-			totals[date] += duration
+			var pauseSeconds int64
+			var pauseLines []string
+			paused := false
+
+			for _, pause := range task.pauses {
+				pauseEnd := now
+
+				if pause.end.Valid {
+					pauseEnd = pause.end.Int64
+				} else {
+					paused = true
+				}
+
+				pauseStart := max(start, pause.start)
+				pauseEnd = min(segmentEnd, max(pause.start, pauseEnd))
+
+				if pauseEnd <= pauseStart {
+					continue
+				}
+
+				duration := pauseEnd - pauseStart
+				pauseSeconds += duration
+
+				if details {
+					reason := pause.reason
+
+					if reason == "" {
+						reason = "(no reason)"
+					}
+
+					label := historyTime(pauseEnd, nextDay, from.Location())
+
+					if !pause.end.Valid && pauseEnd == now {
+						label = "ongoing"
+					}
+
+					pauseLines = append(pauseLines, fmt.Sprintf("  Pause  %s - %s  %s  %s\n",
+						time.Unix(pauseStart, 0).In(from.Location()).Format("15:04:05"), label, formatDuration(duration), reason))
+				}
+			}
+
+			work := max(int64(0), segmentEnd-start-pauseSeconds)
+			label := historyTime(segmentEnd, nextDay, from.Location())
+
+			if !task.end.Valid && segmentEnd == now && segmentEnd != nextDay {
+				label = "active"
+
+				if paused {
+					label = "paused"
+				}
+			}
+
+			line := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\n", localStart.Format("15:04:05"), label,
+				formatDuration(work), formatDuration(pauseSeconds), task.name)
+			day.lines = append(day.lines, line)
+			day.lines = append(day.lines, pauseLines...)
+			day.work += work
+			day.pauses += pauseSeconds
 
 			if segmentEnd >= end {
 				break
@@ -127,37 +245,40 @@ func printHistory(db *sql.DB, from, until time.Time) error {
 		}
 	}
 
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	if len(sections) == 0 {
+	if len(days) == 0 {
 		_, err := fmt.Println("No entries.")
+
 		return err
 	}
 
-	dates := make([]string, 0, len(sections))
+	dates := make([]string, 0, len(days))
 
-	for date := range sections {
+	for date := range days {
 		dates = append(dates, date)
 	}
 
 	sort.Strings(dates)
 
 	for _, date := range dates {
-		lines := sections[date]
+		day := days[date]
 
-		if _, err := fmt.Printf("DATE\n%s\n\n", date); err != nil {
+		dayDate, err := time.Parse("2006-01-02", date)
+
+		if err != nil {
+			return err
+		}
+
+		if _, err := fmt.Printf("DATE\n%s • %s\n\n", date, dayDate.Weekday()); err != nil {
 			return err
 		}
 
 		writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
-		if _, err := fmt.Fprintln(writer, "START\tEND\tDURATION\tTASK"); err != nil {
+		if _, err := fmt.Fprintln(writer, "START\tEND\tWORK\tPAUSES\tTASK"); err != nil {
 			return err
 		}
 
-		for _, line := range lines {
+		for _, line := range day.lines {
 			if _, err := fmt.Fprint(writer, line); err != nil {
 				return err
 			}
@@ -167,7 +288,7 @@ func printHistory(db *sql.DB, from, until time.Time) error {
 			return err
 		}
 
-		if _, err := fmt.Printf("\nTotal: %s\n\n", formatDuration(totals[date])); err != nil {
+		if _, err := fmt.Printf("\nTotal work:   %s\nTotal pauses: %s\n\n", formatDuration(day.work), formatDuration(day.pauses)); err != nil {
 			return err
 		}
 	}
@@ -175,7 +296,16 @@ func printHistory(db *sql.DB, from, until time.Time) error {
 	return nil
 }
 
+func historyTime(timestamp, nextDay int64, location *time.Location) string {
+	if timestamp == nextDay {
+		return "24:00:00"
+	}
+
+	return time.Unix(timestamp, 0).In(location).Format("15:04:05")
+}
+
 func formatDuration(seconds int64) string {
-	minutes := max(int64(0), seconds) / 60
-	return fmt.Sprintf("%02d:%02d", minutes/60, minutes%60)
+	seconds = max(int64(0), seconds)
+
+	return fmt.Sprintf("%02d:%02d:%02d", seconds/3600, seconds/60%60, seconds%60)
 }

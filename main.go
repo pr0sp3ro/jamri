@@ -12,9 +12,10 @@ import (
 const usage = `Usage:
   tickd start "task name"
   tickd stop
-  tickd pause
+  tickd pause ["reason"]
+  tickd resume
   tickd status
-  tickd history [today|yesterday|week|month|YYYY-MM-DD [YYYY-MM-DD]]
+  tickd history [--details] [today|yesterday|week|month|YYYY-MM-DD [YYYY-MM-DD]]
   tickd help
 `
 
@@ -34,13 +35,20 @@ func run(args []string) error {
 
 	if command == "help" || command == "--help" {
 		_, err := fmt.Print(usage)
+
 		return err
 	}
 
 	var from, until time.Time
+	var details bool
 
 	if command == "history" {
-		from, until, err = historyRange(args[1:], time.Now())
+		var dates []string
+		dates, details, err = historyArguments(args[1:])
+
+		if err == nil {
+			from, until, err = historyRange(dates, time.Now())
+		}
 
 		if err != nil {
 			return err
@@ -61,9 +69,11 @@ func run(args []string) error {
 	case "stop":
 		return stopTask(db)
 	case "pause":
-		return togglePause(db)
+		return pauseTask(db, args[1:])
+	case "resume":
+		return resumeTask(db)
 	case "history":
-		return printHistory(db, from, until)
+		return printHistory(db, from, until, details)
 	case "status":
 		line, err := readStatus(db)
 
@@ -72,6 +82,7 @@ func run(args []string) error {
 		}
 
 		_, err = fmt.Println(line)
+
 		return err
 	}
 
@@ -86,13 +97,17 @@ func validateArguments(args []string) (string, error) {
 	command := args[0]
 
 	switch command {
-	case "help", "--help", "stop", "status", "pause":
+	case "help", "--help", "stop", "status", "resume":
 		if len(args) != 1 {
 			return "", fmt.Errorf("%s does not accept arguments", command)
 		}
 	case "history":
-		if len(args) > 3 {
-			return "", errors.New("history accepts a period, a date, or two dates")
+		if _, _, err := historyArguments(args[1:]); err != nil {
+			return "", err
+		}
+	case "pause":
+		if len(args) > 2 {
+			return "", errors.New("pause accepts one optional reason")
 		}
 	case "start":
 		if len(args) != 2 || strings.TrimSpace(args[1]) == "" {

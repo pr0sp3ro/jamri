@@ -19,6 +19,7 @@ The script rebuilds tickd and installs it to `~/.local/bin`.
 tickd start "dev"
 tickd stop
 tickd pause
+tickd resume
 tickd status
 tickd history
 tickd --help
@@ -27,14 +28,14 @@ tickd --help
 `start` closes the active entry and creates a new one, even with the same name.
 `stop` does nothing when no task is active. Both commands are silent on success.
 
-`pause` toggles between pausing and resuming the current task. While paused,
-`status` prints e.g. `dev (paused)  01:23:45` with a frozen duration. Resuming
-continues the accumulated time without counting the break. `pause` without
-an active or paused task reports an error. `stop` ends a paused task, and
-`start` replaces it with a new one.
+`pause` asks for an optional reason. Press Enter to leave it blank, or provide
+it directly with `tickd pause "lunch"`. EOF or interruption cancels the prompt.
+`resume` resumes a paused task. Pausing requires a running task, and resuming
+requires a paused task. Both commands are silent on success, apart from the prompt.
 
-History shows each working interval as a separate entry. Pauses are excluded
-from durations and daily totals. Pause state persists between CLI invocations.
+While paused, `status` prints `dev (paused)  01:23:45` with a frozen work duration.
+Breaks do not count toward work time. `stop` ends the task and any open pause.
+`start` replaces the current task, including a paused task, with a new one.
 
 `status` prints `dev  01:23:45` (hours, minutes, and seconds), or `idle`.
 Configure your statusbar to run `tickd status` every second to display second updates.
@@ -82,24 +83,42 @@ tickd history 2026-10-10
 tickd history 2026-10-01 2026-10-10  # inclusive date range
 ```
 
-Dates use the local timezone. Each day with entries gets its own section:
+Dates use the local timezone. Each day with tasks gets its own section.
+Each task appears once per day, regardless of the number of pauses:
 
 ```text
 DATE
-YYYY-MM-DD
+2026-10-14 • Wednesday
 
-START  END     DURATION  TASK
-09:00  10:30   01:30     dev
-10:45  active  00:25     documentation
+START     END       WORK      PAUSES    TASK
+09:00:00  12:00:00  02:15:00  00:45:00  coding xyz
 
-Total: 01:55
+Total work:   02:15:00
+Total pauses: 00:45:00
 ```
 
-Entries crossing midnight are split into daily portions for display only.
-Times are clipped to each day, with `24:00` marking its end. Active entries
-are counted up to now. Durations show full minutes. Daily totals are calculated
-from seconds before rounding, so they may differ from the sum of displayed minutes.
-Days without entries are omitted. An empty result prints `No entries.`.
+Use `--details` with any date filter to show individual pauses:
+
+```sh
+tickd history --details
+tickd history week --details
+```
+
+```text
+START     END       WORK      PAUSES    TASK
+09:00:00  12:00:00  02:15:00  00:45:00  coding xyz
+  Pause  10:00:00 - 10:30:00  00:30:00  lunch
+  Pause  11:00:00 - 11:15:00  00:15:00  (no reason)
+```
+
+An open task shows `active` or `paused` in END. An open pause shows `ongoing`
+in the details. Separate `start` commands create separate tasks, even with the
+same name.
+
+Tasks and pauses crossing midnight are clipped to each day for display only,
+with `24:00:00` marking its end. Open intervals are counted up to now. Times,
+durations, and daily totals include seconds. Days without tasks are omitted. An empty result
+prints `No entries.`.
 
 ## dmenu example
 
@@ -108,13 +127,20 @@ Days without entries are omitted. An empty result prints `No entries.`.
 
 set -euo pipefail
 
-choice=$(printf 'start\nstop\n' | dmenu -i -p 'tickd:' "$@") || exit 0
+choice=$(printf 'start\npause\nresume\nstop\n' | dmenu -i -p 'tickd:' "$@") || exit 0
 
 case "$choice" in
   start)
       name=$(dmenu -p 'Task:' "$@" </dev/null) || exit 0
       [[ -n "$name" ]] || exit 0
       tickd start "$name"
+      ;;
+  pause)
+      reason=$(dmenu -p 'Pause reason (optional):' "$@" </dev/null) || exit 0
+      tickd pause "$reason"
+      ;;
+  resume)
+      tickd resume
       ;;
   stop)
       tickd stop

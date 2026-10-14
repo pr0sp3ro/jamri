@@ -18,6 +18,7 @@ The script rebuilds tickd and installs it to `~/.local/bin`.
 ```sh
 tickd start "dev"
 tickd stop
+tickd pause
 tickd status
 tickd history
 tickd --help
@@ -25,6 +26,15 @@ tickd --help
 
 `start` closes the active entry and creates a new one, even with the same name.
 `stop` does nothing when no task is active. Both commands are silent on success.
+
+`pause` toggles between pausing and resuming the current task. While paused,
+`status` prints e.g. `dev (paused)  01:23:45` with a frozen duration. Resuming
+continues the accumulated time without counting the break. `pause` without
+an active or paused task reports an error. `stop` ends a paused task, and
+`start` replaces it with a new one.
+
+History shows each working interval as a separate entry. Pauses are excluded
+from durations and daily totals. Pause state persists between CLI invocations.
 
 `status` prints `dev  01:23:45` (hours, minutes, and seconds), or `idle`.
 Configure your statusbar to run `tickd status` every second to display second updates.

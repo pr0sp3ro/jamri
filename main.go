@@ -12,6 +12,7 @@ import (
 const usage = `Usage:
   tickd start "task name"
   tickd stop
+  tickd pause
   tickd status
   tickd history [today|yesterday|week|month|YYYY-MM-DD [YYYY-MM-DD]]
   tickd help
@@ -59,6 +60,8 @@ func run(args []string) error {
 		return startTask(db, args[1])
 	case "stop":
 		return stopTask(db)
+	case "pause":
+		return togglePause(db)
 	case "history":
 		return printHistory(db, from, until)
 	case "status":
@@ -83,7 +86,7 @@ func validateArguments(args []string) (string, error) {
 	command := args[0]
 
 	switch command {
-	case "help", "--help", "stop", "status":
+	case "help", "--help", "stop", "status", "pause":
 		if len(args) != 1 {
 			return "", fmt.Errorf("%s does not accept arguments", command)
 		}

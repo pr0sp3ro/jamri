@@ -48,6 +48,12 @@ CREATE TABLE IF NOT EXISTS entries (
     started_at INTEGER NOT NULL,
     ended_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS task_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    name TEXT NOT NULL,
+    elapsed_seconds INTEGER NOT NULL,
+    paused_at INTEGER
+);
 CREATE UNIQUE INDEX IF NOT EXISTS entries_one_active
     ON entries ((1)) WHERE ended_at IS NULL;
 `)
@@ -74,6 +80,10 @@ func startTask(db *sql.DB, name string) error {
 		return err
 	}
 
+	if _, err := tx.Exec("DELETE FROM task_state"); err != nil {
+		return err
+	}
+
 	if _, err := tx.Exec("INSERT INTO entries (name, started_at) VALUES (?, ?)", name, now); err != nil {
 		return err
 	}
@@ -91,6 +101,10 @@ func stopTask(db *sql.DB) error {
 	defer tx.Rollback()
 
 	if _, err := tx.Exec("UPDATE entries SET ended_at = ? WHERE ended_at IS NULL", time.Now().Unix()); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec("DELETE FROM task_state"); err != nil {
 		return err
 	}
 

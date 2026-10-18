@@ -10,25 +10,31 @@ import (
 )
 
 const usage = `Usage:
-  tickd start "task name" [--quality "text"] [--focus "text"]
+  tickd start [category] "task name" [--quality "text"] [--focus "text"]
   tickd stop [--quality "text"] [--focus "text"]
   tickd pause ["reason"]
   tickd resume
   tickd status
   tickd history [--details] [today|yesterday|week|month|YYYY-MM-DD [YYYY-MM-DD]]
-  tickd edit ID [--name "text"] [--quality "text"] [--focus "text"]
+  tickd edit ID [--name "text"] [--quality "text"] [--focus "text"] [--category NAME]
+  tickd category list
+  tickd category add NAME
+  tickd category rename OLD NEW
   tickd help
 
-Quality and focus describe the task being ended. Both are optional single-line
-answers and accept any non-empty text. An active task is required when provided.
+With start and stop, quality and focus describe the task being ended. Both accept
+optional non-empty single-line text. An active task is required when provided.
 
 Edit updates completed tasks only and requires at least one option. Omitted fields
 stay unchanged. Use --quality "" or --focus "" to clear an answer.
+Use --category "" to remove a category. Category names use a-z, 0-9, and hyphens.
+Unknown categories are created automatically by start and edit.
 
 Examples:
   tickd stop --quality "good" --focus "high"
   tickd stop --focus "frequent interruptions"
   tickd start "next task" --quality "very good"
+  tickd start dev "programming aris one app"
   tickd edit 42 --name "coding xyz" --quality "good"
 `
 
@@ -81,12 +87,14 @@ func run(args []string) error {
 		edit, _ := editArguments(args[1:])
 
 		return editTask(db, edit)
+	case "category":
+		return manageCategory(db, args[1:])
 	case "start":
-		name, quality, focus, _ := taskArguments(command, args[1:])
+		name, category, quality, focus, _ := taskArguments(command, args[1:])
 
-		return startTask(db, name, quality, focus)
+		return startTask(db, name, category, quality, focus)
 	case "stop":
-		_, quality, focus, _ := taskArguments(command, args[1:])
+		_, _, quality, focus, _ := taskArguments(command, args[1:])
 
 		return stopTask(db, quality, focus)
 	case "pause":
@@ -130,12 +138,16 @@ func validateArguments(args []string) (string, error) {
 		if _, err := editArguments(args[1:]); err != nil {
 			return "", err
 		}
+	case "category":
+		if err := categoryArguments(args[1:]); err != nil {
+			return "", err
+		}
 	case "pause":
 		if len(args) > 2 {
 			return "", errors.New("pause accepts one optional reason")
 		}
 	case "start", "stop":
-		if _, _, _, err := taskArguments(command, args[1:]); err != nil {
+		if _, _, _, _, err := taskArguments(command, args[1:]); err != nil {
 			return "", err
 		}
 	default:
@@ -145,8 +157,8 @@ func validateArguments(args []string) (string, error) {
 	return command, nil
 }
 
-func taskArguments(command string, args []string) (name, quality, focus string, err error) {
-	nameSet := false
+func taskArguments(command string, args []string) (name, category, quality, focus string, err error) {
+	var positional []string
 
 	for i := 0; i < len(args); i++ {
 		argument := args[i]
@@ -159,50 +171,61 @@ func taskArguments(command string, args []string) (name, quality, focus string, 
 			}
 
 			if *answer != "" {
-				return "", "", "", fmt.Errorf("%s specified more than once", argument)
+				return "", "", "", "", fmt.Errorf("%s specified more than once", argument)
 			}
 
 			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
-				return "", "", "", fmt.Errorf("%s requires a value", argument)
+				return "", "", "", "", fmt.Errorf("%s requires a value", argument)
 			}
 
 			i++
 			*answer = args[i]
 
 			if strings.TrimSpace(*answer) == "" {
-				return "", "", "", fmt.Errorf("%s requires non-empty text", argument)
+				return "", "", "", "", fmt.Errorf("%s requires non-empty text", argument)
 			}
 
 			for _, character := range *answer {
 				if unicode.IsControl(character) || character == '\u2028' || character == '\u2029' {
-					return "", "", "", fmt.Errorf("%s must be a single line without control characters", argument)
+					return "", "", "", "", fmt.Errorf("%s must be a single line without control characters", argument)
 				}
 			}
 		} else {
 			if strings.HasPrefix(argument, "--") {
-				return "", "", "", fmt.Errorf("unknown option %q", argument)
+				return "", "", "", "", fmt.Errorf("unknown option %q", argument)
 			}
 
-			if command != "start" || nameSet {
-				return "", "", "", fmt.Errorf("unexpected argument %q", argument)
+			if command != "start" || len(positional) == 2 {
+				return "", "", "", "", fmt.Errorf("unexpected argument %q", argument)
 			}
 
-			name = argument
-			nameSet = true
+			positional = append(positional, argument)
 		}
 	}
 
 	if command == "start" {
+		if len(positional) > 0 {
+			name = positional[len(positional)-1]
+		}
+
+		if len(positional) == 2 {
+			category = positional[0]
+
+			if err := validateCategoryName(category); err != nil {
+				return "", "", "", "", err
+			}
+		}
+
 		if strings.TrimSpace(name) == "" {
-			return "", "", "", errors.New("start requires one non-empty task name")
+			return "", "", "", "", errors.New("start requires one non-empty task name")
 		}
 
 		for _, character := range name {
 			if unicode.IsControl(character) || character == '\u2028' || character == '\u2029' {
-				return "", "", "", errors.New("task name must not contain control characters or line separators")
+				return "", "", "", "", errors.New("task name must not contain control characters or line separators")
 			}
 		}
 	}
 
-	return name, quality, focus, nil
+	return name, category, quality, focus, nil
 }

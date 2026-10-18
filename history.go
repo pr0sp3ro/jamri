@@ -89,20 +89,21 @@ type historyPause struct {
 }
 
 type historyTask struct {
-	id      int64
-	name    string
-	start   int64
-	end     sql.NullInt64
-	quality sql.NullString
-	focus   sql.NullString
-	pauses  []historyPause
+	id       int64
+	name     string
+	start    int64
+	end      sql.NullInt64
+	quality  sql.NullString
+	focus    sql.NullString
+	category string
+	pauses   []historyPause
 }
 
 func readHistory(db *sql.DB, from, until time.Time, now int64) ([]historyTask, error) {
 	rows, err := db.Query(`
- SELECT t.id, t.name, t.started_at, t.ended_at, t.quality, t.focus,
+ SELECT t.id, t.name, t.started_at, t.ended_at, t.quality, t.focus, COALESCE(c.name, '-'),
         p.started_at, p.ended_at, p.reason
- FROM tasks t LEFT JOIN pauses p ON p.task_id = t.id
+ FROM tasks t LEFT JOIN categories c ON c.id = t.category_id LEFT JOIN pauses p ON p.task_id = t.id
  WHERE t.started_at < ?
    AND (COALESCE(t.ended_at, ?) > ? OR t.started_at >= ?)
  ORDER BY t.started_at, t.id, p.started_at, p.id
@@ -120,7 +121,7 @@ func readHistory(db *sql.DB, from, until time.Time, now int64) ([]historyTask, e
 		var pauseStart, pauseEnd sql.NullInt64
 		var reason sql.NullString
 
-		if err := rows.Scan(&task.id, &task.name, &task.start, &task.end, &task.quality, &task.focus, &pauseStart, &pauseEnd, &reason); err != nil {
+		if err := rows.Scan(&task.id, &task.name, &task.start, &task.end, &task.quality, &task.focus, &task.category, &pauseStart, &pauseEnd, &reason); err != nil {
 			return nil, err
 		}
 
@@ -232,8 +233,8 @@ func printHistory(db *sql.DB, from, until time.Time, details bool) error {
 				}
 			}
 
-			line := fmt.Sprintf("%d\t%s\t%s\t%s\t%s\t%s\n", task.id, localStart.Format("15:04:05"), label,
-				formatDuration(work), formatDuration(pauseSeconds), task.name)
+			line := fmt.Sprintf("%d\t%s\t%s\t%s\t%s\t%s\t%s\n", task.id, localStart.Format("15:04:05"), label,
+				formatDuration(work), formatDuration(pauseSeconds), task.category, task.name)
 			day.lines = append(day.lines, line)
 
 			if details {
@@ -287,7 +288,7 @@ func printHistory(db *sql.DB, from, until time.Time, details bool) error {
 
 		writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
-		if _, err := fmt.Fprintln(writer, "ID\tSTART\tEND\tWORK\tPAUSES\tTASK"); err != nil {
+		if _, err := fmt.Fprintln(writer, "ID\tSTART\tEND\tWORK\tPAUSES\tCATEGORY\tTASK"); err != nil {
 			return err
 		}
 

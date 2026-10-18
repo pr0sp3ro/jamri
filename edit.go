@@ -10,10 +10,11 @@ import (
 )
 
 type taskEdit struct {
-	id      int64
-	name    *string
-	quality *string
-	focus   *string
+	id       int64
+	name     *string
+	quality  *string
+	focus    *string
+	category *string
 }
 
 func editArguments(args []string) (taskEdit, error) {
@@ -42,6 +43,8 @@ func editArguments(args []string) (taskEdit, error) {
 			field = &edit.quality
 		case "--focus":
 			field = &edit.focus
+		case "--category":
+			field = &edit.category
 		default:
 			return edit, fmt.Errorf("unknown edit option %q", option)
 		}
@@ -67,11 +70,17 @@ func editArguments(args []string) (taskEdit, error) {
 			}
 		}
 
+		if option == "--category" && value != "" {
+			if err := validateCategoryName(value); err != nil {
+				return edit, err
+			}
+		}
+
 		*field = &value
 	}
 
-	if edit.name == nil && edit.quality == nil && edit.focus == nil {
-		return edit, errors.New("edit requires at least one of --name, --quality, --focus")
+	if edit.name == nil && edit.quality == nil && edit.focus == nil && edit.category == nil {
+		return edit, errors.New("edit requires at least one of --name, --quality, --focus, --category")
 	}
 
 	return edit, nil
@@ -100,12 +109,23 @@ func editTask(db *sql.DB, edit taskEdit) error {
 		return errors.New("only completed tasks can be edited")
 	}
 
+	var categoryID sql.NullInt64
+
+	if edit.category != nil {
+		categoryID, err = ensureCategory(tx, *edit.category)
+
+		if err != nil {
+			return err
+		}
+	}
+
 	_, err = tx.Exec(`
 		UPDATE tasks SET name = COALESCE(?, name),
 		    quality = CASE WHEN ? THEN NULLIF(?, '') ELSE quality END,
-		    focus = CASE WHEN ? THEN NULLIF(?, '') ELSE focus END
+		    focus = CASE WHEN ? THEN NULLIF(?, '') ELSE focus END,
+		    category_id = CASE WHEN ? THEN ? ELSE category_id END
 		WHERE id = ?
-	`, edit.name, edit.quality != nil, edit.quality, edit.focus != nil, edit.focus, edit.id)
+	`, edit.name, edit.quality != nil, edit.quality, edit.focus != nil, edit.focus, edit.category != nil, categoryID, edit.id)
 
 	if err != nil {
 		return err

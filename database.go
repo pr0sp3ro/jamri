@@ -44,6 +44,10 @@ func openDatabase() (*sql.DB, error) {
 
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`
+CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
+);
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -70,7 +74,7 @@ CREATE INDEX IF NOT EXISTS pauses_task ON pauses (task_id, started_at);
 		return nil, err
 	}
 
-	if err := migrateTaskAnswers(db); err != nil {
+	if err := migrateTaskColumns(db); err != nil {
 		db.Close()
 
 		return nil, err
@@ -79,7 +83,7 @@ CREATE INDEX IF NOT EXISTS pauses_task ON pauses (task_id, started_at);
 	return db, nil
 }
 
-func migrateTaskAnswers(db *sql.DB) error {
+func migrateTaskColumns(db *sql.DB) error {
 	tx, err := db.Begin()
 
 	if err != nil {
@@ -88,7 +92,7 @@ func migrateTaskAnswers(db *sql.DB) error {
 
 	defer tx.Rollback()
 
-	for _, column := range []string{"quality", "focus"} {
+	for _, column := range []string{"quality", "focus", "category_id"} {
 		var exists bool
 
 		if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM pragma_table_info('tasks') WHERE name = ?)", column).Scan(&exists); err != nil {
@@ -96,7 +100,13 @@ func migrateTaskAnswers(db *sql.DB) error {
 		}
 
 		if !exists {
-			if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN " + column + " TEXT"); err != nil {
+			definition := "TEXT"
+
+			if column == "category_id" {
+				definition = "INTEGER REFERENCES categories(id)"
+			}
+
+			if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN " + column + " " + definition); err != nil {
 				return err
 			}
 		}
@@ -105,7 +115,7 @@ func migrateTaskAnswers(db *sql.DB) error {
 	return tx.Commit()
 }
 
-func startTask(db *sql.DB, name, quality, focus string) error {
+func startTask(db *sql.DB, name, category, quality, focus string) error {
 	tx, err := db.Begin()
 
 	if err != nil {
@@ -119,7 +129,13 @@ func startTask(db *sql.DB, name, quality, focus string) error {
 		return err
 	}
 
-	if _, err := tx.Exec("INSERT INTO tasks (name, started_at) VALUES (?, ?)", name, now); err != nil {
+	categoryID, err := ensureCategory(tx, category)
+
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec("INSERT INTO tasks (name, started_at, category_id) VALUES (?, ?, ?)", name, now, categoryID); err != nil {
 		return err
 	}
 

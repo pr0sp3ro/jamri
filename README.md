@@ -63,7 +63,7 @@ The SQLite database is created automatically at
 `$XDG_DATA_HOME/tickd/tickd.sqlite3`, defaulting to
 `~/.local/share/tickd/tickd.sqlite3`. Relative `XDG_DATA_HOME` values are ignored.
 Existing databases are upgraded automatically, preserving task and pause history.
-Older tasks have no quality or focus answers.
+Older tasks have no quality or focus answers and no category.
 
 ## Optional shutdown stop
 
@@ -87,6 +87,40 @@ systemctl --user disable --now tickd-stop.service
 
 Disabling the running service also stops the active task.
 
+## Categories
+
+Tasks can optionally belong to one category. Put the category before the task
+name when starting a task:
+
+```sh
+tickd start dev "programming aris one app"
+tickd start free-time "reading"
+tickd start "task without category"
+```
+
+One positional argument is the task name. Two positional arguments are the
+category and the task name. Quote task names containing spaces. Category names
+must be non-empty and contain only lowercase ASCII letters (`a-z`), digits
+(`0-9`), and hyphens (`-`). Unknown categories are created automatically.
+With `start`, the category belongs to the new task, while `--quality` and
+`--focus` still describe the previous task.
+
+Manage the saved categories with:
+
+```sh
+tickd category list
+tickd category add eating
+tickd category rename dev coding
+```
+
+The list is sorted alphabetically, with one name per line. An empty list prints
+`No categories.`. Adding an existing name does nothing. Renaming updates the
+category name for all assigned tasks, including historical entries. The old name
+must exist and the new name must be available. Renaming a category to its own
+name does nothing. Add and rename are silent on success.
+
+History shows a `CATEGORY` column. Tasks without a category show `-`.
+
 ## History
 
 ```sh
@@ -106,8 +140,8 @@ Each task appears once per day, regardless of the number of pauses:
 DATE
 2026-10-14 • Wednesday
 
-ID  START     END       WORK      PAUSES    TASK
-42  09:00:00  12:00:00  02:15:00  00:45:00  coding xyz
+ID  START     END       WORK      PAUSES    CATEGORY  TASK
+42  09:00:00  12:00:00  02:15:00  00:45:00  dev       coding xyz
 
 Total work:   02:15:00
 Total pauses: 00:45:00
@@ -121,8 +155,8 @@ tickd history week --details
 ```
 
 ```text
-ID  START     END       WORK      PAUSES    TASK
-42  09:00:00  12:00:00  02:15:00  00:45:00  coding xyz
+ID  START     END       WORK      PAUSES    CATEGORY  TASK
+42  09:00:00  12:00:00  02:15:00  00:45:00  dev       coding xyz
   Quality: good
   Focus: high
   Pause  10:00:00 - 10:30:00  00:30:00  lunch
@@ -149,10 +183,14 @@ Use the ID shown in history to edit a completed task:
 tickd edit 42 --name "coding xyz"
 tickd edit 42 --quality "good" --focus "high"
 tickd edit 42 --focus ""
+tickd edit 42 --category dev
+tickd edit 42 --category ""
 ```
 
-Provide at least one of `--name`, `--quality`, or `--focus`. Omitted fields keep
-their current values. An empty quality or focus value clears that answer. Names
+Provide at least one of `--name`, `--quality`, `--focus`, or `--category`. Omitted fields keep
+their current values. An empty quality or focus value clears that answer.
+An empty category removes the assignment. A new category name creates that
+category automatically. Names
 must be non-empty, and all values must be single-line text without control
 characters. Whitespace-only values, repeated options, and missing values are
 rejected.

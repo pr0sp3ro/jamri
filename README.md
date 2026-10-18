@@ -57,6 +57,11 @@ Configure your statusbar to run `tickd status` every second to display second up
 Elapsed time includes sleep and shutdown until the task is stopped.
 The optional shutdown service can stop tasks automatically on normal shutdown.
 
+If the system clock moves backward, new task and pause timestamps cannot precede
+the latest recorded timestamp. Several events may share that timestamp until
+the clock catches up. This preserves interval ordering but cannot recover the
+actual elapsed time during a clock correction.
+
 ## Storage
 
 The SQLite database is created automatically at

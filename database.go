@@ -43,7 +43,39 @@ func openDatabase() (*sql.DB, error) {
 	}
 
 	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`
+	if err := migrateDatabase(db); err != nil {
+		db.Close()
+
+		return nil, err
+	}
+
+	return db, nil
+}
+
+func migrateDatabase(db *sql.DB) error {
+	var current bool
+	err := db.QueryRow(`
+		SELECT
+		    (SELECT COUNT(*) FROM sqlite_master WHERE
+		        (type = 'table' AND name IN ('categories', 'tasks', 'pauses')) OR
+		        (type = 'index' AND name IN ('tasks_one_active', 'pauses_one_active', 'pauses_task'))
+		    ) = 6
+		    AND (SELECT COUNT(*) FROM pragma_table_info('tasks')
+		        WHERE name IN ('quality', 'focus', 'category_id')) = 3
+	`).Scan(&current)
+
+	if err != nil || current {
+		return err
+	}
+
+	tx, err := db.Begin()
+
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback()
+	_, err = tx.Exec(`
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE
@@ -69,28 +101,8 @@ CREATE INDEX IF NOT EXISTS pauses_task ON pauses (task_id, started_at);
 `)
 
 	if err != nil {
-		db.Close()
-
-		return nil, err
-	}
-
-	if err := migrateTaskColumns(db); err != nil {
-		db.Close()
-
-		return nil, err
-	}
-
-	return db, nil
-}
-
-func migrateTaskColumns(db *sql.DB) error {
-	tx, err := db.Begin()
-
-	if err != nil {
 		return err
 	}
-
-	defer tx.Rollback()
 
 	for _, column := range []string{"quality", "focus", "category_id"} {
 		var exists bool
@@ -123,7 +135,11 @@ func startTask(db *sql.DB, name, category, quality, focus string) error {
 	}
 
 	defer tx.Rollback()
-	now := time.Now().Unix()
+	now, err := operationTime(tx)
+
+	if err != nil {
+		return err
+	}
 
 	if err := closeTask(tx, now, quality, focus); err != nil {
 		return err
@@ -151,7 +167,13 @@ func stopTask(db *sql.DB, quality, focus string) error {
 
 	defer tx.Rollback()
 
-	if err := closeTask(tx, time.Now().Unix(), quality, focus); err != nil {
+	now, err := operationTime(tx)
+
+	if err != nil {
+		return err
+	}
+
+	if err := closeTask(tx, now, quality, focus); err != nil {
 		return err
 	}
 
@@ -186,4 +208,18 @@ func closeTask(tx *sql.Tx, now int64, quality, focus string) error {
 	}
 
 	return nil
+}
+
+func operationTime(tx *sql.Tx) (int64, error) {
+	var last sql.NullInt64
+	err := tx.QueryRow(`
+		SELECT MAX(timestamp) FROM (
+		    SELECT MAX(started_at) AS timestamp FROM tasks
+		    UNION ALL SELECT MAX(ended_at) FROM tasks
+		    UNION ALL SELECT MAX(started_at) FROM pauses
+		    UNION ALL SELECT MAX(ended_at) FROM pauses
+		)
+	`).Scan(&last)
+
+	return max(time.Now().Unix(), last.Int64), err
 }

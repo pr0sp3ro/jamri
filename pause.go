@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 	"unicode"
 )
 
@@ -58,12 +57,18 @@ func pauseTask(db *sql.DB, args []string) error {
 	}
 
 	defer tx.Rollback()
+	now, err := operationTime(tx)
+
+	if err != nil {
+		return err
+	}
+
 	result, err := tx.Exec(`
 		INSERT INTO pauses (task_id, started_at, reason)
 		SELECT id, MAX(started_at, ?), ? FROM tasks
 		WHERE id = ? AND ended_at IS NULL
 		  AND NOT EXISTS (SELECT 1 FROM pauses WHERE ended_at IS NULL)
-	`, time.Now().Unix(), reason, taskID)
+	`, now, reason, taskID)
 
 	if err != nil {
 		return err
@@ -90,7 +95,13 @@ func resumeTask(db *sql.DB) error {
 	}
 
 	defer tx.Rollback()
-	result, err := tx.Exec("UPDATE pauses SET ended_at = MAX(started_at, ?) WHERE ended_at IS NULL", time.Now().Unix())
+	now, err := operationTime(tx)
+
+	if err != nil {
+		return err
+	}
+
+	result, err := tx.Exec("UPDATE pauses SET ended_at = MAX(started_at, ?) WHERE ended_at IS NULL", now)
 
 	if err != nil {
 		return err

@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -69,10 +70,42 @@ CREATE INDEX IF NOT EXISTS pauses_task ON pauses (task_id, started_at);
 		return nil, err
 	}
 
+	if err := migrateTaskAnswers(db); err != nil {
+		db.Close()
+
+		return nil, err
+	}
+
 	return db, nil
 }
 
-func startTask(db *sql.DB, name string) error {
+func migrateTaskAnswers(db *sql.DB) error {
+	tx, err := db.Begin()
+
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback()
+
+	for _, column := range []string{"quality", "focus"} {
+		var exists bool
+
+		if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM pragma_table_info('tasks') WHERE name = ?)", column).Scan(&exists); err != nil {
+			return err
+		}
+
+		if !exists {
+			if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN " + column + " TEXT"); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func startTask(db *sql.DB, name, quality, focus string) error {
 	tx, err := db.Begin()
 
 	if err != nil {
@@ -82,7 +115,7 @@ func startTask(db *sql.DB, name string) error {
 	defer tx.Rollback()
 	now := time.Now().Unix()
 
-	if err := closeTask(tx, now); err != nil {
+	if err := closeTask(tx, now, quality, focus); err != nil {
 		return err
 	}
 
@@ -93,7 +126,7 @@ func startTask(db *sql.DB, name string) error {
 	return tx.Commit()
 }
 
-func stopTask(db *sql.DB) error {
+func stopTask(db *sql.DB, quality, focus string) error {
 	tx, err := db.Begin()
 
 	if err != nil {
@@ -102,19 +135,39 @@ func stopTask(db *sql.DB) error {
 
 	defer tx.Rollback()
 
-	if err := closeTask(tx, time.Now().Unix()); err != nil {
+	if err := closeTask(tx, time.Now().Unix(), quality, focus); err != nil {
 		return err
 	}
 
 	return tx.Commit()
 }
 
-func closeTask(tx *sql.Tx, now int64) error {
+func closeTask(tx *sql.Tx, now int64, quality, focus string) error {
 	if _, err := tx.Exec("UPDATE pauses SET ended_at = MAX(started_at, ?) WHERE ended_at IS NULL", now); err != nil {
 		return err
 	}
 
-	_, err := tx.Exec("UPDATE tasks SET ended_at = MAX(started_at, ?) WHERE ended_at IS NULL", now)
+	result, err := tx.Exec(`
+		UPDATE tasks SET ended_at = MAX(started_at, ?),
+		    quality = NULLIF(?, ''), focus = NULLIF(?, '')
+		WHERE ended_at IS NULL
+	`, now, quality, focus)
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	if quality != "" || focus != "" {
+		count, err := result.RowsAffected()
+
+		if err != nil {
+			return err
+		}
+
+		if count == 0 {
+			return errors.New("no active task to rate")
+		}
+	}
+
+	return nil
 }

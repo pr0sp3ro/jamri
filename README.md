@@ -28,6 +28,20 @@ tickd --help
 `start` closes the active entry and creates a new one, even with the same name.
 `stop` does nothing when no task is active. Both commands are silent on success.
 
+Optionally describe the task being ended with `--quality` and `--focus`:
+
+```sh
+tickd stop --quality "good" --focus "high"
+tickd stop --focus "frequent interruptions"
+tickd start "next task" --quality "very good"
+```
+
+Each option accepts any non-empty single-line text. Either option can be omitted,
+and options may appear before or after the task name. No questions are asked in
+the terminal. With `start`, answers belong to the previous task, including a paused
+task. Providing answers when no task is active returns an error without starting
+a new task. Missing values, repeated options, and control characters are rejected.
+
 `pause` asks for an optional reason. Press Enter to leave it blank, or provide
 it directly with `tickd pause "lunch"`. EOF or interruption cancels the prompt.
 `resume` resumes a paused task. Pausing requires a running task, and resuming
@@ -48,6 +62,8 @@ The optional shutdown service can stop tasks automatically on normal shutdown.
 The SQLite database is created automatically at
 `$XDG_DATA_HOME/tickd/tickd.sqlite3`, defaulting to
 `~/.local/share/tickd/tickd.sqlite3`. Relative `XDG_DATA_HOME` values are ignored.
+Existing databases are upgraded automatically, preserving task and pause history.
+Older tasks have no quality or focus answers.
 
 ## Optional shutdown stop
 
@@ -97,7 +113,7 @@ Total work:   02:15:00
 Total pauses: 00:45:00
 ```
 
-Use `--details` with any date filter to show individual pauses:
+Use `--details` with any date filter to show quality and focus answers and individual pauses:
 
 ```sh
 tickd history --details
@@ -107,9 +123,14 @@ tickd history week --details
 ```text
 START     END       WORK      PAUSES    TASK
 09:00:00  12:00:00  02:15:00  00:45:00  coding xyz
+  Quality: good
+  Focus: high
   Pause  10:00:00 - 10:30:00  00:30:00  lunch
   Pause  11:00:00 - 11:15:00  00:15:00  (no reason)
 ```
+
+Quality and focus appear only with `--details`. Unanswered fields are omitted.
+For tasks spanning multiple days, answers appear under each daily task entry.
 
 An open task shows `active` or `paused` in END. An open pause shows `ongoing`
 in the details. Separate `start` commands create separate tasks, even with the
@@ -130,10 +151,37 @@ set -euo pipefail
 choice=$(printf 'start\npause\nresume\nstop\n' | dmenu -i -p 'tickd:' "$@") || exit 0
 
 case "$choice" in
-  start)
-      name=$(dmenu -p 'Task:' "$@" </dev/null) || exit 0
-      [[ -n "$name" ]] || exit 0
-      tickd start "$name"
+  start|stop)
+      args=("$choice")
+
+      if [[ "$choice" == start ]]; then
+          name=$(dmenu -p 'Task:' "$@" </dev/null) || exit 0
+          [[ -n "$name" ]] || exit 0
+          args+=("$name")
+      fi
+
+      status=$(tickd status)
+
+      if [[ "$status" != idle ]]; then
+          quality=$(printf '%s\n' 'Skip' 'very poor' 'poor' 'average' 'good' 'very good' |
+              dmenu -i -p 'Work quality (optional):' "$@") || exit 0
+          focus=$(printf '%s\n' 'Skip' 'none' 'low' 'moderate' 'high' 'full' |
+              dmenu -i -p 'Focus (optional):' "$@") || exit 0
+
+          if [[ -n "$quality" && "$quality" != Skip ]]; then
+              args+=(--quality "$quality")
+          fi
+
+          if [[ -n "$focus" && "$focus" != Skip ]]; then
+              args+=(--focus "$focus")
+          fi
+      fi
+
+      tickd "${args[@]}"
+
+      if [[ "$choice" == stop ]]; then
+          notify-send 'tickd' 'Task stopped.'
+      fi
       ;;
   pause)
       reason=$(dmenu -p 'Pause reason (optional):' "$@" </dev/null) || exit 0
@@ -142,12 +190,14 @@ case "$choice" in
   resume)
       tickd resume
       ;;
-  stop)
-      tickd stop
-      notify-send 'tickd' 'Task stopped.'
-      ;;
 esac
 ```
+
+The quality and focus menus offer five suggestions and accept custom text.
+Choose `Skip` or submit an empty answer to omit a field. Esc cancels the entire
+operation before any task is stopped or started. These menus appear only when
+there is an active task to end. Avoid changing tasks in another terminal while
+answering the menus.
 
 Then you can bind it to a key in your window manager, for example in i3/sway:
 

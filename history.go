@@ -89,16 +89,18 @@ type historyPause struct {
 }
 
 type historyTask struct {
-	id     int64
-	name   string
-	start  int64
-	end    sql.NullInt64
-	pauses []historyPause
+	id      int64
+	name    string
+	start   int64
+	end     sql.NullInt64
+	quality sql.NullString
+	focus   sql.NullString
+	pauses  []historyPause
 }
 
 func readHistory(db *sql.DB, from, until time.Time, now int64) ([]historyTask, error) {
 	rows, err := db.Query(`
- SELECT t.id, t.name, t.started_at, t.ended_at,
+ SELECT t.id, t.name, t.started_at, t.ended_at, t.quality, t.focus,
         p.started_at, p.ended_at, p.reason
  FROM tasks t LEFT JOIN pauses p ON p.task_id = t.id
  WHERE t.started_at < ?
@@ -118,7 +120,7 @@ func readHistory(db *sql.DB, from, until time.Time, now int64) ([]historyTask, e
 		var pauseStart, pauseEnd sql.NullInt64
 		var reason sql.NullString
 
-		if err := rows.Scan(&task.id, &task.name, &task.start, &task.end, &pauseStart, &pauseEnd, &reason); err != nil {
+		if err := rows.Scan(&task.id, &task.name, &task.start, &task.end, &task.quality, &task.focus, &pauseStart, &pauseEnd, &reason); err != nil {
 			return nil, err
 		}
 
@@ -233,6 +235,17 @@ func printHistory(db *sql.DB, from, until time.Time, details bool) error {
 			line := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\n", localStart.Format("15:04:05"), label,
 				formatDuration(work), formatDuration(pauseSeconds), task.name)
 			day.lines = append(day.lines, line)
+
+			if details {
+				if task.quality.Valid {
+					day.lines = append(day.lines, fmt.Sprintf("  Quality: %s\n", task.quality.String))
+				}
+
+				if task.focus.Valid {
+					day.lines = append(day.lines, fmt.Sprintf("  Focus: %s\n", task.focus.String))
+				}
+			}
+
 			day.lines = append(day.lines, pauseLines...)
 			day.work += work
 			day.pauses += pauseSeconds

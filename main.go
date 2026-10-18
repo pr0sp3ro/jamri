@@ -10,13 +10,21 @@ import (
 )
 
 const usage = `Usage:
-  tickd start "task name"
-  tickd stop
+  tickd start "task name" [--quality "text"] [--focus "text"]
+  tickd stop [--quality "text"] [--focus "text"]
   tickd pause ["reason"]
   tickd resume
   tickd status
   tickd history [--details] [today|yesterday|week|month|YYYY-MM-DD [YYYY-MM-DD]]
   tickd help
+
+Quality and focus describe the task being ended. Both are optional single-line
+answers and accept any non-empty text. An active task is required when provided.
+
+Examples:
+  tickd stop --quality "good" --focus "high"
+  tickd stop --focus "frequent interruptions"
+  tickd start "next task" --quality "very good"
 `
 
 func main() {
@@ -65,9 +73,13 @@ func run(args []string) error {
 
 	switch command {
 	case "start":
-		return startTask(db, args[1])
+		name, quality, focus, _ := taskArguments(command, args[1:])
+
+		return startTask(db, name, quality, focus)
 	case "stop":
-		return stopTask(db)
+		_, quality, focus, _ := taskArguments(command, args[1:])
+
+		return stopTask(db, quality, focus)
 	case "pause":
 		return pauseTask(db, args[1:])
 	case "resume":
@@ -97,7 +109,7 @@ func validateArguments(args []string) (string, error) {
 	command := args[0]
 
 	switch command {
-	case "help", "--help", "stop", "status", "resume":
+	case "help", "--help", "status", "resume":
 		if len(args) != 1 {
 			return "", fmt.Errorf("%s does not accept arguments", command)
 		}
@@ -109,19 +121,75 @@ func validateArguments(args []string) (string, error) {
 		if len(args) > 2 {
 			return "", errors.New("pause accepts one optional reason")
 		}
-	case "start":
-		if len(args) != 2 || strings.TrimSpace(args[1]) == "" {
-			return "", errors.New("start requires one non-empty task name")
-		}
-
-		for _, character := range args[1] {
-			if unicode.IsControl(character) || character == '\u2028' || character == '\u2029' {
-				return "", errors.New("task name must not contain control characters or line separators")
-			}
+	case "start", "stop":
+		if _, _, _, err := taskArguments(command, args[1:]); err != nil {
+			return "", err
 		}
 	default:
 		return "", fmt.Errorf("unknown command %q\n%s", command, usage)
 	}
 
 	return command, nil
+}
+
+func taskArguments(command string, args []string) (name, quality, focus string, err error) {
+	nameSet := false
+
+	for i := 0; i < len(args); i++ {
+		argument := args[i]
+
+		if argument == "--quality" || argument == "--focus" {
+			answer := &quality
+
+			if argument == "--focus" {
+				answer = &focus
+			}
+
+			if *answer != "" {
+				return "", "", "", fmt.Errorf("%s specified more than once", argument)
+			}
+
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				return "", "", "", fmt.Errorf("%s requires a value", argument)
+			}
+
+			i++
+			*answer = args[i]
+
+			if strings.TrimSpace(*answer) == "" {
+				return "", "", "", fmt.Errorf("%s requires non-empty text", argument)
+			}
+
+			for _, character := range *answer {
+				if unicode.IsControl(character) || character == '\u2028' || character == '\u2029' {
+					return "", "", "", fmt.Errorf("%s must be a single line without control characters", argument)
+				}
+			}
+		} else {
+			if strings.HasPrefix(argument, "--") {
+				return "", "", "", fmt.Errorf("unknown option %q", argument)
+			}
+
+			if command != "start" || nameSet {
+				return "", "", "", fmt.Errorf("unexpected argument %q", argument)
+			}
+
+			name = argument
+			nameSet = true
+		}
+	}
+
+	if command == "start" {
+		if strings.TrimSpace(name) == "" {
+			return "", "", "", errors.New("start requires one non-empty task name")
+		}
+
+		for _, character := range name {
+			if unicode.IsControl(character) || character == '\u2028' || character == '\u2029' {
+				return "", "", "", errors.New("task name must not contain control characters or line separators")
+			}
+		}
+	}
+
+	return name, quality, focus, nil
 }

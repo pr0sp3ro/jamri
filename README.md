@@ -106,8 +106,8 @@ Each task appears once per day, regardless of the number of pauses:
 DATE
 2026-10-14 • Wednesday
 
-START     END       WORK      PAUSES    TASK
-09:00:00  12:00:00  02:15:00  00:45:00  coding xyz
+ID  START     END       WORK      PAUSES    TASK
+42  09:00:00  12:00:00  02:15:00  00:45:00  coding xyz
 
 Total work:   02:15:00
 Total pauses: 00:45:00
@@ -121,8 +121,8 @@ tickd history week --details
 ```
 
 ```text
-START     END       WORK      PAUSES    TASK
-09:00:00  12:00:00  02:15:00  00:45:00  coding xyz
+ID  START     END       WORK      PAUSES    TASK
+42  09:00:00  12:00:00  02:15:00  00:45:00  coding xyz
   Quality: good
   Focus: high
   Pause  10:00:00 - 10:30:00  00:30:00  lunch
@@ -140,6 +140,26 @@ Tasks and pauses crossing midnight are clipped to each day for display only,
 with `24:00:00` marking its end. Open intervals are counted up to now. Times,
 durations, and daily totals include seconds. Days without tasks are omitted. An empty result
 prints `No entries.`.
+
+### Editing entries
+
+Use the ID shown in history to edit a completed task:
+
+```sh
+tickd edit 42 --name "coding xyz"
+tickd edit 42 --quality "good" --focus "high"
+tickd edit 42 --focus ""
+```
+
+Provide at least one of `--name`, `--quality`, or `--focus`. Omitted fields keep
+their current values. An empty quality or focus value clears that answer. Names
+must be non-empty, and all values must be single-line text without control
+characters. Whitespace-only values, repeated options, and missing values are
+rejected.
+
+Only completed tasks can be edited. Unknown IDs return an error. Editing does
+not change task times or pauses and is silent on success. Tasks spanning multiple
+days have the same ID on each day. Editing updates the entire task.
 
 ## dmenu example
 

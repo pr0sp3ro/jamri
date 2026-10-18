@@ -232,7 +232,7 @@ func printHistory(db *sql.DB, from, until time.Time, details bool) error {
 				}
 			}
 
-			line := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\n", localStart.Format("15:04:05"), label,
+			line := fmt.Sprintf("%d\t%s\t%s\t%s\t%s\t%s\n", task.id, localStart.Format("15:04:05"), label,
 				formatDuration(work), formatDuration(pauseSeconds), task.name)
 			day.lines = append(day.lines, line)
 
@@ -287,7 +287,7 @@ func printHistory(db *sql.DB, from, until time.Time, details bool) error {
 
 		writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
-		if _, err := fmt.Fprintln(writer, "START\tEND\tWORK\tPAUSES\tTASK"); err != nil {
+		if _, err := fmt.Fprintln(writer, "ID\tSTART\tEND\tWORK\tPAUSES\tTASK"); err != nil {
 			return err
 		}
 

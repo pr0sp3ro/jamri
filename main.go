@@ -16,15 +16,20 @@ const usage = `Usage:
   tickd resume
   tickd status
   tickd history [--details] [today|yesterday|week|month|YYYY-MM-DD [YYYY-MM-DD]]
+  tickd edit ID [--name "text"] [--quality "text"] [--focus "text"]
   tickd help
 
 Quality and focus describe the task being ended. Both are optional single-line
 answers and accept any non-empty text. An active task is required when provided.
 
+Edit updates completed tasks only and requires at least one option. Omitted fields
+stay unchanged. Use --quality "" or --focus "" to clear an answer.
+
 Examples:
   tickd stop --quality "good" --focus "high"
   tickd stop --focus "frequent interruptions"
   tickd start "next task" --quality "very good"
+  tickd edit 42 --name "coding xyz" --quality "good"
 `
 
 func main() {
@@ -72,6 +77,10 @@ func run(args []string) error {
 	defer db.Close()
 
 	switch command {
+	case "edit":
+		edit, _ := editArguments(args[1:])
+
+		return editTask(db, edit)
 	case "start":
 		name, quality, focus, _ := taskArguments(command, args[1:])
 
@@ -115,6 +124,10 @@ func validateArguments(args []string) (string, error) {
 		}
 	case "history":
 		if _, _, err := historyArguments(args[1:]); err != nil {
+			return "", err
+		}
+	case "edit":
+		if _, err := editArguments(args[1:]); err != nil {
 			return "", err
 		}
 	case "pause":

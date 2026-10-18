@@ -100,8 +100,8 @@ tickd start "task without category"
 
 One positional argument is the task name. Two positional arguments are the
 category and the task name. Quote task names containing spaces. Category names
-must be non-empty and contain only lowercase ASCII letters (`a-z`), digits
-(`0-9`), and hyphens (`-`). Unknown categories are created automatically.
+must start with a lowercase ASCII letter (`a-z`) and contain only lowercase ASCII
+letters (`a-z`), digits (`0-9`), and hyphens (`-`). Unknown categories are created automatically.
 With `start`, the category belongs to the new task, while `--quality` and
 `--focus` still describe the previous task.
 

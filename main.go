@@ -27,7 +27,8 @@ optional non-empty single-line text. An active task is required when provided.
 
 Edit updates completed tasks only and requires at least one option. Omitted fields
 stay unchanged. Use --quality "" or --focus "" to clear an answer.
-Use --category "" to remove a category. Category names use a-z, 0-9, and hyphens.
+Use --category "" to remove a category. Category names must start with a-z
+and contain only a-z, 0-9, and hyphens.
 Unknown categories are created automatically by start and edit.
 
 Examples:

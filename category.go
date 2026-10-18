@@ -11,6 +11,10 @@ func validateCategoryName(name string) error {
 		return errors.New("category name must not be empty")
 	}
 
+	if name[0] < 'a' || name[0] > 'z' {
+		return errors.New("category name must start with a lowercase ASCII letter (a-z)")
+	}
+
 	for _, character := range name {
 		if !(character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '-') {
 			return errors.New("category names may contain only a-z, 0-9, and hyphens")

@@ -24,13 +24,13 @@ func openDatabase() (*sql.DB, error) {
 		dataHome = filepath.Join(home, ".local", "share")
 	}
 
-	dir := filepath.Join(dataHome, "tickd")
+	dir := filepath.Join(dataHome, "jamri")
 
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
 
-	dsn := url.URL{Scheme: "file", Path: filepath.Join(dir, "tickd.sqlite3")}
+	dsn := url.URL{Scheme: "file", Path: filepath.Join(dir, "jamri.sqlite3")}
 	query := url.Values{}
 	query.Set("_busy_timeout", "5000")
 	query.Set("_txlock", "immediate")

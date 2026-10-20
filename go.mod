@@ -1,4 +1,4 @@
-module github.com/pr0sp3ro/tickd
+module github.com/pr0sp3ro/jamri
 
 go 1.27.2
 

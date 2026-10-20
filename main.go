@@ -10,17 +10,17 @@ import (
 )
 
 const usage = `Usage:
-  tickd start [category] "task name" [--quality "text"] [--focus "text"]
-  tickd stop [--quality "text"] [--focus "text"]
-  tickd pause ["reason"]
-  tickd resume
-  tickd status
-  tickd history [--details] [today|yesterday|week|month|YYYY-MM-DD [YYYY-MM-DD]]
-  tickd edit ID [--name "text"] [--quality "text"] [--focus "text"] [--category NAME]
-  tickd category list
-  tickd category add NAME
-  tickd category rename OLD NEW
-  tickd help
+  jamri start [category] "task name" [--quality "text"] [--focus "text"]
+  jamri stop [--quality "text"] [--focus "text"]
+  jamri pause ["reason"]
+  jamri resume
+  jamri status
+  jamri history [--details] [today|yesterday|week|month|YYYY-MM-DD [YYYY-MM-DD]]
+  jamri edit ID [--name "text"] [--quality "text"] [--focus "text"] [--category NAME]
+  jamri category list
+  jamri category add NAME
+  jamri category rename OLD NEW
+  jamri help
 
 With start and stop, quality and focus describe the task being ended. Both accept
 optional non-empty single-line text. An active task is required when provided.
@@ -32,16 +32,16 @@ and contain only a-z, 0-9, and hyphens.
 Unknown categories are created automatically by start and edit.
 
 Examples:
-  tickd stop --quality "good" --focus "high"
-  tickd stop --focus "frequent interruptions"
-  tickd start "next task" --quality "very good"
-  tickd start dev "programming aris one app"
-  tickd edit 42 --name "coding xyz" --quality "good"
+  jamri stop --quality "good" --focus "high"
+  jamri stop --focus "frequent interruptions"
+  jamri start "next task" --quality "very good"
+  jamri start dev "working on an app"
+  jamri edit 42 --name "coding xyz" --quality "good"
 `
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "tickd:", err)
+		fmt.Fprintln(os.Stderr, "jamri:", err)
 		os.Exit(1)
 	}
 }

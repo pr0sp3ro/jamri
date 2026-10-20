@@ -1,4 +1,4 @@
-# tickd
+# jamri
 
 Go timer with SQLite history.
 
@@ -11,18 +11,18 @@ Requires Go and a C compiler (CGO).
 ```
 
 Make sure `~/.local/bin` is in your `PATH`.
-The script rebuilds tickd and installs it to `~/.local/bin`.
+The script rebuilds jamri and installs it to `~/.local/bin`.
 
 ## Usage
 
 ```sh
-tickd start "dev"
-tickd stop
-tickd pause
-tickd resume
-tickd status
-tickd history
-tickd --help
+jamri start "dev"
+jamri stop
+jamri pause
+jamri resume
+jamri status
+jamri history
+jamri --help
 ```
 
 `start` closes the active entry and creates a new one, even with the same name.
@@ -31,9 +31,9 @@ tickd --help
 Optionally describe the task being ended with `--quality` and `--focus`:
 
 ```sh
-tickd stop --quality "good" --focus "high"
-tickd stop --focus "frequent interruptions"
-tickd start "next task" --quality "very good"
+jamri stop --quality "good" --focus "high"
+jamri stop --focus "frequent interruptions"
+jamri start "next task" --quality "very good"
 ```
 
 Each option accepts any non-empty single-line text. Either option can be omitted,
@@ -43,7 +43,7 @@ task. Providing answers when no task is active returns an error without starting
 a new task. Missing values, repeated options, and control characters are rejected.
 
 `pause` asks for an optional reason. Press Enter to leave it blank, or provide
-it directly with `tickd pause "lunch"`. EOF or interruption cancels the prompt.
+it directly with `jamri pause "lunch"`. EOF or interruption cancels the prompt.
 `resume` resumes a paused task. Pausing requires a running task, and resuming
 requires a paused task. Both commands are silent on success, apart from the prompt.
 
@@ -52,7 +52,7 @@ Breaks do not count toward work time. `stop` ends the task and any open pause.
 `start` replaces the current task, including a paused task, with a new one.
 
 `status` prints `dev  01:23:45` (hours, minutes, and seconds), or `idle`.
-Configure your statusbar to run `tickd status` every second to display second updates.
+Configure your statusbar to run `jamri status` every second to display second updates.
 
 Elapsed time includes sleep and shutdown until the task is stopped.
 The optional shutdown service can stop tasks automatically on normal shutdown.
@@ -65,8 +65,8 @@ actual elapsed time during a clock correction.
 ## Storage
 
 The SQLite database is created automatically at
-`$XDG_DATA_HOME/tickd/tickd.sqlite3`, defaulting to
-`~/.local/share/tickd/tickd.sqlite3`. Relative `XDG_DATA_HOME` values are ignored.
+`$XDG_DATA_HOME/jamri/jamri.sqlite3`, defaulting to
+`~/.local/share/jamri/jamri.sqlite3`. Relative `XDG_DATA_HOME` values are ignored.
 Existing databases are upgraded automatically, preserving task and pause history.
 Older tasks have no quality or focus answers and no category.
 
@@ -87,7 +87,7 @@ The service uses the database location selected by `XDG_DATA_HOME` when enabled.
 Disable with:
 
 ```sh
-systemctl --user disable --now tickd-stop.service
+systemctl --user disable --now jamri-stop.service
 ```
 
 Disabling the running service also stops the active task.
@@ -98,9 +98,9 @@ Tasks can optionally belong to one category. Put the category before the task
 name when starting a task:
 
 ```sh
-tickd start dev "programming aris one app"
-tickd start free-time "reading"
-tickd start "task without category"
+jamri start dev "working on an app"
+jamri start free-time "reading"
+jamri start "task without category"
 ```
 
 One positional argument is the task name. Two positional arguments are the
@@ -113,9 +113,9 @@ With `start`, the category belongs to the new task, while `--quality` and
 Manage the saved categories with:
 
 ```sh
-tickd category list
-tickd category add eating
-tickd category rename dev coding
+jamri category list
+jamri category add eating
+jamri category rename dev coding
 ```
 
 The list is sorted alphabetically, with one name per line. An empty list prints
@@ -129,13 +129,13 @@ History shows a `CATEGORY` column. Tasks without a category show `-`.
 ## History
 
 ```sh
-tickd history                        # today
-tickd history today
-tickd history yesterday
-tickd history week                   # current week, starting Monday
-tickd history month                  # current calendar month
-tickd history 2026-10-10
-tickd history 2026-10-01 2026-10-10  # inclusive date range
+jamri history                        # today
+jamri history today
+jamri history yesterday
+jamri history week                   # current week, starting Monday
+jamri history month                  # current calendar month
+jamri history 2026-10-10
+jamri history 2026-10-01 2026-10-10  # inclusive date range
 ```
 
 Dates use the local timezone. Each day with tasks gets its own section.
@@ -155,8 +155,8 @@ Total pauses: 00:45:00
 Use `--details` with any date filter to show quality and focus answers and individual pauses:
 
 ```sh
-tickd history --details
-tickd history week --details
+jamri history --details
+jamri history week --details
 ```
 
 ```text
@@ -185,11 +185,11 @@ prints `No entries.`.
 Use the ID shown in history to edit a completed task:
 
 ```sh
-tickd edit 42 --name "coding xyz"
-tickd edit 42 --quality "good" --focus "high"
-tickd edit 42 --focus ""
-tickd edit 42 --category dev
-tickd edit 42 --category ""
+jamri edit 42 --name "coding xyz"
+jamri edit 42 --quality "good" --focus "high"
+jamri edit 42 --focus ""
+jamri edit 42 --category dev
+jamri edit 42 --category ""
 ```
 
 Provide at least one of `--name`, `--quality`, `--focus`, or `--category`. Omitted fields keep
@@ -211,7 +211,7 @@ days have the same ID on each day. Editing updates the entire task.
 
 set -euo pipefail
 
-choice=$(printf 'start\npause\nresume\nstop\n' | dmenu -i -p 'tickd:' "$@") || exit 0
+choice=$(printf 'start\npause\nresume\nstop\n' | dmenu -i -p 'jamri:' "$@") || exit 0
 
 case "$choice" in
   start|stop)
@@ -223,7 +223,7 @@ case "$choice" in
           args+=("$name")
       fi
 
-      status=$(tickd status)
+      status=$(jamri status)
 
       if [[ "$status" != idle ]]; then
           quality=$(printf '%s\n' 'Skip' 'very poor' 'poor' 'average' 'good' 'very good' |
@@ -240,18 +240,18 @@ case "$choice" in
           fi
       fi
 
-      tickd "${args[@]}"
+      jamri "${args[@]}"
 
       if [[ "$choice" == stop ]]; then
-          notify-send 'tickd' 'Task stopped.'
+          notify-send 'jamri' 'Task stopped.'
       fi
       ;;
   pause)
       reason=$(dmenu -p 'Pause reason (optional):' "$@" </dev/null) || exit 0
-      tickd pause "$reason"
+      jamri pause "$reason"
       ;;
   resume)
-      tickd resume
+      jamri resume
       ;;
 esac
 ```
@@ -265,7 +265,7 @@ answering the menus.
 Then you can bind it to a key in your window manager, for example in i3/sway:
 
 ```text
-bindsym $mod+t exec --no-startup-id "dm-tickd"
+bindsym $mod+t exec --no-startup-id "dm-jamri"
 ```
 
 ## i3status example
@@ -288,7 +288,7 @@ i3status --config "$CONFIG" | {
               ;;
       esac
 
-      tickd_status=$(tickd status 2>/dev/null) || tickd_status="unavailable"
+      jamri_status=$(jamri status 2>/dev/null) || jamri_status="unavailable"
 
       case "$line" in
           ""|"[" )
@@ -297,8 +297,8 @@ i3status --config "$CONFIG" | {
               ;;
       esac
 
-      line=$(printf '%s\n' "$line" | jq -c --arg tickd "$tickd_status" \
-          '[{name: "tickd", full_text: $tickd}] + .')
+      line=$(printf '%s\n' "$line" | jq -c --arg jamri "$jamri_status" \
+          '[{name: "jamri", full_text: $jamri}] + .')
       printf '%s%s\n' "$prefix" "$line"
   done
 }

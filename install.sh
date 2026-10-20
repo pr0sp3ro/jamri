@@ -7,8 +7,8 @@ trap 'rm -rf "$build_dir"' EXIT
 trap 'exit 1' HUP INT TERM
 
 cd "$project_dir"
-CGO_ENABLED=1 go build -o "$build_dir/tickd" .
+CGO_ENABLED=1 go build -o "$build_dir/jamri" .
 
 mkdir -p "$HOME/.local/bin"
-install -m 755 "$build_dir/tickd" "$HOME/.local/bin/tickd"
-printf 'Installed tickd to %s/.local/bin/tickd\n' "$HOME"
+install -m 755 "$build_dir/jamri" "$HOME/.local/bin/jamri"
+printf 'Installed jamri to %s/.local/bin/jamri\n' "$HOME"

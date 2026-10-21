@@ -303,3 +303,7 @@ i3status --config "$CONFIG" | {
   done
 }
 ```
+
+## License
+
+[MIT](LICENSE) - Copyright (c) 2026 [Synframe Labs](https://synframe.eu).

@@ -11,6 +11,7 @@ import (
 
 const usage = `Usage:
   jamri start [category] "task name" [--quality "text"] [--focus "text"]
+  jamri add [category] "task name" --from HH:MM --to HH:MM [--date YYYY-MM-DD] [--quality "text"] [--focus "text"]
   jamri stop [--quality "text"] [--focus "text"]
   jamri pause ["reason"]
   jamri resume
@@ -25,17 +26,24 @@ const usage = `Usage:
 With start and stop, quality and focus describe the task being ended. Both accept
 optional non-empty single-line text. An active task is required when provided.
 
+Add records a completed task without pauses. Quality and focus describe that task.
+The date defaults to today in the local timezone. Both times must be on the same
+day, with the end after the start and not in the future. Overlaps with existing
+tasks, including active or paused tasks, are rejected. Adjacent ranges are allowed.
+Add does not change the active timer and is silent on success.
+
 Edit updates completed tasks only and requires at least one option. Omitted fields
 stay unchanged. Use --quality "" or --focus "" to clear an answer.
 Use --category "" to remove a category. Category names must start with a-z
 and contain only a-z, 0-9, and hyphens.
-Unknown categories are created automatically by start and edit.
+Unknown categories are created automatically by start, add, and edit.
 
 Examples:
   jamri stop --quality "good" --focus "high"
   jamri stop --focus "frequent interruptions"
   jamri start "next task" --quality "very good"
   jamri start dev "working on an app"
+  jamri add dev "working on an app" --date 2026-10-29 --from 14:00 --to 15:30 --focus high
   jamri edit 42 --name "coding xyz" --quality "good"
 `
 
@@ -61,6 +69,15 @@ func run(args []string) error {
 
 	var from, until time.Time
 	var details bool
+	var addition taskAddition
+
+	if command == "add" {
+		addition, err = addArguments(args[1:], time.Now())
+
+		if err != nil {
+			return err
+		}
+	}
 
 	if command == "history" {
 		var dates []string
@@ -84,6 +101,8 @@ func run(args []string) error {
 	defer db.Close()
 
 	switch command {
+	case "add":
+		return addTask(db, addition)
 	case "edit":
 		edit, _ := editArguments(args[1:])
 
@@ -133,6 +152,10 @@ func validateArguments(args []string) (string, error) {
 		}
 	case "history":
 		if _, _, err := historyArguments(args[1:]); err != nil {
+			return "", err
+		}
+	case "add":
+		if _, err := addArguments(args[1:], time.Now()); err != nil {
 			return "", err
 		}
 	case "edit":

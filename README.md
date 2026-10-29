@@ -62,6 +62,34 @@ the latest recorded timestamp. Several events may share that timestamp until
 the clock catches up. This preserves interval ordering but cannot recover the
 actual elapsed time during a clock correction.
 
+## Adding completed tasks
+
+Record work after it has finished with `add`:
+
+```sh
+jamri add dev "working on an app" --date 2026-10-29 --from 14:00 --to 15:30 --focus high --quality good
+jamri add "reading" --from 09:00 --to 09:30
+```
+
+The category is optional, just as with `start`. Unknown categories are created
+automatically. `--from` and `--to` are required and use `HH:MM`. `--date` uses
+`YYYY-MM-DD` and defaults to today. Dates and times use the local timezone.
+Both times refer to the same day. The end must be after the start and must not
+be in the future. Nonexistent local times during daylight saving changes are rejected.
+
+Optional `--focus` and `--quality` describe the task being added and accept the
+same non-empty single-line text as `stop`. Options can appear before or after
+the category and task name. Unknown or repeated options and missing values are rejected.
+
+The task is saved as completed, without pauses. Its entire time range must be
+free of other tasks, including active or paused tasks. A pause within another
+task does not make that time available. Adjacent ranges are allowed. An overlap
+error identifies the conflicting task ID. Adding a task does not change the
+active timer and is silent on success.
+
+Added tasks appear in `history` and can be updated with `edit` like other
+completed tasks. Use `history --details` to see their quality and focus.
+
 ## Storage
 
 The SQLite database is created automatically at

@@ -10,7 +10,7 @@ import (
 )
 
 const usage = `Usage:
-  jamri start [category] "task name" [--quality "text"] [--focus "text"]
+  jamri start [category] "task name" [--max-time DURATION] [--quality "text"] [--focus "text"]
   jamri add [category] "task name" --from HH:MM --to HH:MM [--date YYYY-MM-DD] [--quality "text"] [--focus "text"]
   jamri stop [--quality "text"] [--focus "text"]
   jamri pause ["reason"]
@@ -25,6 +25,11 @@ const usage = `Usage:
 
 With start and stop, quality and focus describe the task being ended. Both accept
 optional non-empty single-line text. An active task is required when provided.
+
+With start, --max-time sets a work time limit for the new task, for example 45m
+or 1h30m. Pauses do not count. Once the limit is reached, jamri status shows
+a notification and plays a short sound, once per task. The alert requires
+jamri status to run periodically, for example from a status bar.
 
 Add records a completed task without pauses. Quality and focus describe that task.
 The date defaults to today in the local timezone. Both times must be on the same
@@ -43,6 +48,7 @@ Examples:
   jamri stop --focus "frequent interruptions"
   jamri start "next task" --quality "very good"
   jamri start dev "working on an app"
+  jamri start dev "working on an app" --max-time 45m
   jamri add dev "working on an app" --date 2026-10-29 --from 14:00 --to 15:30 --focus high
   jamri edit 42 --name "coding xyz" --quality "good"
 `
@@ -110,9 +116,10 @@ func run(args []string) error {
 	case "category":
 		return manageCategory(db, args[1:])
 	case "start":
-		name, category, quality, focus, _ := taskArguments(command, args[1:])
+		maxSeconds, taskArgs, _ := maxTimeArgument(args[1:])
+		name, category, quality, focus, _ := taskArguments(command, taskArgs)
 
-		return startTask(db, name, category, quality, focus)
+		return startTask(db, name, category, quality, focus, maxSeconds)
 	case "stop":
 		_, _, quality, focus, _ := taskArguments(command, args[1:])
 
@@ -171,7 +178,19 @@ func validateArguments(args []string) (string, error) {
 			return "", errors.New("pause accepts one optional reason")
 		}
 	case "start", "stop":
-		if _, _, _, _, err := taskArguments(command, args[1:]); err != nil {
+		taskArgs := args[1:]
+
+		if command == "start" {
+			_, rest, err := maxTimeArgument(taskArgs)
+
+			if err != nil {
+				return "", err
+			}
+
+			taskArgs = rest
+		}
+
+		if _, _, _, _, err := taskArguments(command, taskArgs); err != nil {
 			return "", err
 		}
 	default:
@@ -179,6 +198,39 @@ func validateArguments(args []string) (string, error) {
 	}
 
 	return command, nil
+}
+
+// maxTimeArgument extracts --max-time from start arguments and returns the
+// remaining arguments for taskArguments, which is shared with add.
+func maxTimeArgument(args []string) (int64, []string, error) {
+	var maxSeconds int64
+	var rest []string
+
+	for i := 0; i < len(args); i++ {
+		if args[i] != "--max-time" {
+			rest = append(rest, args[i])
+			continue
+		}
+
+		if maxSeconds != 0 {
+			return 0, nil, errors.New("--max-time specified more than once")
+		}
+
+		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+			return 0, nil, errors.New("--max-time requires a value")
+		}
+
+		i++
+		duration, err := time.ParseDuration(args[i])
+
+		if err != nil || duration <= 0 || duration%time.Second != 0 {
+			return 0, nil, errors.New("--max-time requires a positive duration in whole seconds, for example 45m or 1h30m")
+		}
+
+		maxSeconds = int64(duration / time.Second)
+	}
+
+	return maxSeconds, rest, nil
 }
 
 func taskArguments(command string, args []string) (name, category, quality, focus string, err error) {

@@ -17,6 +17,7 @@ The script rebuilds jamri and installs it to `~/.local/bin`.
 
 ```sh
 jamri start "dev"
+jamri start "dev" --max-time 45m
 jamri stop
 jamri pause
 jamri resume
@@ -61,6 +62,30 @@ If the system clock moves backward, new task and pause timestamps cannot precede
 the latest recorded timestamp. Several events may share that timestamp until
 the clock catches up. This preserves interval ordering but cannot recover the
 actual elapsed time during a clock correction.
+
+## Max time
+
+Set a work time limit for a new task with `--max-time`:
+
+```sh
+jamri start dev "working on an app" --max-time 45m
+jamri start "reading" --max-time 1h30m
+```
+
+The value is a Go duration (`45m`, `1h30m`, `90s`) and must be a positive
+number of whole seconds. The option is accepted only by `start` and applies to
+the new task. Like the `status` duration, the limit counts work time, so pauses
+do not count toward it.
+
+When the limit is reached, `jamri status` shows a desktop notification and plays
+a short sound, once per task. jamri runs no background process, so the alert
+requires `jamri status` to run periodically, for example from a status bar as
+shown below. The alert fires on the first `status` call after the limit is
+reached. The task keeps running until it is stopped.
+
+The alert uses `notify-send`, `pw-play` (or `paplay` as a fallback), and
+`alarm-clock-elapsed.oga` from the freedesktop sound theme. Alert errors are
+written to stderr without affecting the status line.
 
 ## Adding completed tasks
 

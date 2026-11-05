@@ -61,7 +61,7 @@ func migrateDatabase(db *sql.DB) error {
 		        (type = 'index' AND name IN ('tasks_one_active', 'pauses_one_active', 'pauses_task'))
 		    ) = 6
 		    AND (SELECT COUNT(*) FROM pragma_table_info('tasks')
-		        WHERE name IN ('quality', 'focus', 'category_id')) = 3
+		        WHERE name IN ('quality', 'focus', 'category_id', 'max_seconds', 'max_notified_at')) = 5
 	`).Scan(&current)
 
 	if err != nil || current {
@@ -104,7 +104,7 @@ CREATE INDEX IF NOT EXISTS pauses_task ON pauses (task_id, started_at);
 		return err
 	}
 
-	for _, column := range []string{"quality", "focus", "category_id"} {
+	for _, column := range []string{"quality", "focus", "category_id", "max_seconds", "max_notified_at"} {
 		var exists bool
 
 		if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM pragma_table_info('tasks') WHERE name = ?)", column).Scan(&exists); err != nil {
@@ -114,8 +114,11 @@ CREATE INDEX IF NOT EXISTS pauses_task ON pauses (task_id, started_at);
 		if !exists {
 			definition := "TEXT"
 
-			if column == "category_id" {
+			switch column {
+			case "category_id":
 				definition = "INTEGER REFERENCES categories(id)"
+			case "max_seconds", "max_notified_at":
+				definition = "INTEGER"
 			}
 
 			if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN " + column + " " + definition); err != nil {
@@ -127,7 +130,7 @@ CREATE INDEX IF NOT EXISTS pauses_task ON pauses (task_id, started_at);
 	return tx.Commit()
 }
 
-func startTask(db *sql.DB, name, category, quality, focus string) error {
+func startTask(db *sql.DB, name, category, quality, focus string, maxSeconds int64) error {
 	tx, err := db.Begin()
 
 	if err != nil {
@@ -151,7 +154,12 @@ func startTask(db *sql.DB, name, category, quality, focus string) error {
 		return err
 	}
 
-	if _, err := tx.Exec("INSERT INTO tasks (name, started_at, category_id) VALUES (?, ?, ?)", name, now, categoryID); err != nil {
+	_, err = tx.Exec(`
+		INSERT INTO tasks (name, started_at, category_id, max_seconds)
+		VALUES (?, ?, ?, NULLIF(?, 0))
+	`, name, now, categoryID, maxSeconds)
+
+	if err != nil {
 		return err
 	}
 

@@ -1,24 +1,16 @@
-package main
+package cli
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/pr0sp3ro/jamri/internal/store"
 )
 
-type taskAddition struct {
-	name     string
-	category string
-	quality  string
-	focus    string
-	start    time.Time
-	end      time.Time
-}
-
-func addArguments(args []string, now time.Time) (taskAddition, error) {
-	var addition taskAddition
+func addArguments(args []string, now time.Time) (store.CompletedTask, error) {
+	var addition store.CompletedTask
 	values := make(map[string]string)
 	var taskArgs []string
 
@@ -57,7 +49,7 @@ func addArguments(args []string, now time.Time) (taskAddition, error) {
 	}
 
 	var err error
-	addition.name, addition.category, addition.quality, addition.focus, err = taskArguments("start", taskArgs)
+	addition.Name, addition.Category, addition.Quality, addition.Focus, err = taskArguments("start", taskArgs)
 
 	if err != nil {
 		return addition, fmt.Errorf("add: %w", err)
@@ -74,7 +66,7 @@ func addArguments(args []string, now time.Time) (taskAddition, error) {
 	for _, field := range []struct {
 		option string
 		target *time.Time
-	}{{"--from", &addition.start}, {"--to", &addition.end}} {
+	}{{"--from", &addition.Start}, {"--to", &addition.End}} {
 		input := date + " " + values[field.option]
 		parsed, err := time.ParseInLocation(layout, input, now.Location())
 
@@ -85,54 +77,13 @@ func addArguments(args []string, now time.Time) (taskAddition, error) {
 		*field.target = parsed
 	}
 
-	if !addition.end.After(addition.start) {
+	if !addition.End.After(addition.Start) {
 		return addition, errors.New("end time must be after start time on the same day")
 	}
 
-	if addition.end.After(now) {
+	if addition.End.After(now) {
 		return addition, errors.New("end time must not be in the future")
 	}
 
 	return addition, nil
-}
-
-func addTask(db *sql.DB, addition taskAddition) error {
-	tx, err := db.Begin()
-
-	if err != nil {
-		return err
-	}
-
-	defer tx.Rollback()
-	var conflictID int64
-	err = tx.QueryRow(`
-		SELECT id FROM tasks
-		WHERE started_at < ? AND (ended_at IS NULL OR ended_at > ?)
-		ORDER BY started_at, id LIMIT 1
-	`, addition.end.Unix(), addition.start.Unix()).Scan(&conflictID)
-
-	if err == nil {
-		return fmt.Errorf("time range overlaps task %d", conflictID)
-	}
-
-	if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-
-	categoryID, err := ensureCategory(tx, addition.category)
-
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec(`
-		INSERT INTO tasks (name, started_at, ended_at, category_id, quality, focus)
-		VALUES (?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))
-	`, addition.name, addition.start.Unix(), addition.end.Unix(), categoryID, addition.quality, addition.focus)
-
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
 }

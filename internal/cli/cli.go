@@ -1,12 +1,13 @@
-package main
+package cli
 
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/pr0sp3ro/jamri/internal/store"
 )
 
 const usage = `Usage:
@@ -53,14 +54,8 @@ Examples:
   jamri edit 42 --name "coding xyz" --quality "good"
 `
 
-func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "jamri:", err)
-		os.Exit(1)
-	}
-}
-
-func run(args []string) error {
+// Run executes a command. The arguments exclude the program name.
+func Run(args []string) error {
 	command, err := validateArguments(args)
 
 	if err != nil {
@@ -75,7 +70,7 @@ func run(args []string) error {
 
 	var from, until time.Time
 	var details bool
-	var addition taskAddition
+	var addition store.CompletedTask
 
 	if command == "add" {
 		addition, err = addArguments(args[1:], time.Now())
@@ -98,7 +93,7 @@ func run(args []string) error {
 		}
 	}
 
-	db, err := openDatabase()
+	db, err := store.Open()
 
 	if err != nil {
 		return err
@@ -108,38 +103,30 @@ func run(args []string) error {
 
 	switch command {
 	case "add":
-		return addTask(db, addition)
+		return db.AddTask(addition)
 	case "edit":
 		edit, _ := editArguments(args[1:])
 
-		return editTask(db, edit)
+		return db.EditTask(edit)
 	case "category":
 		return manageCategory(db, args[1:])
 	case "start":
 		maxSeconds, taskArgs, _ := maxTimeArgument(args[1:])
 		name, category, quality, focus, _ := taskArguments(command, taskArgs)
 
-		return startTask(db, name, category, quality, focus, maxSeconds)
+		return db.StartTask(name, category, quality, focus, maxSeconds)
 	case "stop":
 		_, _, quality, focus, _ := taskArguments(command, args[1:])
 
-		return stopTask(db, quality, focus)
+		return db.StopTask(quality, focus)
 	case "pause":
-		return pauseTask(db, args[1:])
+		return pause(db, args[1:])
 	case "resume":
-		return resumeTask(db)
+		return db.Resume()
 	case "history":
 		return printHistory(db, from, until, details)
 	case "status":
-		line, err := readStatus(db)
-
-		if err != nil {
-			return err
-		}
-
-		_, err = fmt.Println(line)
-
-		return err
+		return printStatus(db)
 	}
 
 	return nil

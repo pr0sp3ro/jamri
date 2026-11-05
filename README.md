@@ -4,14 +4,37 @@ Go timer with SQLite history.
 
 ## Installation
 
-Requires Go and a C compiler (CGO).
+Requires Go and a C compiler, because the SQLite driver uses CGO.
+Make sure `~/.local/bin` is in your `PATH`.
+
+### Install script
+
+From a clone of the repository:
 
 ```sh
-./install.sh
+./scripts/install.sh
 ```
 
-Make sure `~/.local/bin` is in your `PATH`.
 The script rebuilds jamri and installs it to `~/.local/bin`.
+
+### go install
+
+```sh
+CGO_ENABLED=1 GOBIN="$HOME/.local/bin" go install github.com/pr0sp3ro/jamri/cmd/jamri@latest
+```
+
+Without `GOBIN`, Go installs to `$(go env GOPATH)/bin`, usually `~/go/bin`.
+The optional shutdown service expects jamri in `~/.local/bin`.
+
+### Manual installation
+
+```sh
+git clone https://github.com/pr0sp3ro/jamri.git
+cd jamri
+CGO_ENABLED=1 go build -o jamri ./cmd/jamri
+mkdir -p ~/.local/bin
+install -m 755 jamri ~/.local/bin/jamri
+```
 
 ## Usage
 
@@ -128,7 +151,7 @@ Older tasks have no quality or focus answers and no category.
 Requires a systemd user manager. Enable automatic task stopping with:
 
 ```sh
-./enable-shutdown-stop.sh
+./scripts/enable-shutdown-stop.sh
 ```
 
 The service runs no background process. It stops the active task when the user

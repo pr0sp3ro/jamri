@@ -1,8 +1,8 @@
-package main
+// Package store keeps tasks, pauses and categories in SQLite.
+package store
 
 import (
 	"database/sql"
-	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,7 +11,11 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func openDatabase() (*sql.DB, error) {
+type Store struct {
+	db *sql.DB
+}
+
+func Open() (*Store, error) {
 	dataHome := os.Getenv("XDG_DATA_HOME")
 
 	if dataHome == "" || !filepath.IsAbs(dataHome) {
@@ -43,16 +47,20 @@ func openDatabase() (*sql.DB, error) {
 	}
 
 	db.SetMaxOpenConns(1)
-	if err := migrateDatabase(db); err != nil {
+	if err := migrate(db); err != nil {
 		db.Close()
 
 		return nil, err
 	}
 
-	return db, nil
+	return &Store{db: db}, nil
 }
 
-func migrateDatabase(db *sql.DB) error {
+func (s *Store) Close() error {
+	return s.db.Close()
+}
+
+func migrate(db *sql.DB) error {
 	var current bool
 	err := db.QueryRow(`
 		SELECT
@@ -128,94 +136,6 @@ CREATE INDEX IF NOT EXISTS pauses_task ON pauses (task_id, started_at);
 	}
 
 	return tx.Commit()
-}
-
-func startTask(db *sql.DB, name, category, quality, focus string, maxSeconds int64) error {
-	tx, err := db.Begin()
-
-	if err != nil {
-		return err
-	}
-
-	defer tx.Rollback()
-	now, err := operationTime(tx)
-
-	if err != nil {
-		return err
-	}
-
-	if err := closeTask(tx, now, quality, focus); err != nil {
-		return err
-	}
-
-	categoryID, err := ensureCategory(tx, category)
-
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec(`
-		INSERT INTO tasks (name, started_at, category_id, max_seconds)
-		VALUES (?, ?, ?, NULLIF(?, 0))
-	`, name, now, categoryID, maxSeconds)
-
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
-func stopTask(db *sql.DB, quality, focus string) error {
-	tx, err := db.Begin()
-
-	if err != nil {
-		return err
-	}
-
-	defer tx.Rollback()
-
-	now, err := operationTime(tx)
-
-	if err != nil {
-		return err
-	}
-
-	if err := closeTask(tx, now, quality, focus); err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
-func closeTask(tx *sql.Tx, now int64, quality, focus string) error {
-	if _, err := tx.Exec("UPDATE pauses SET ended_at = MAX(started_at, ?) WHERE ended_at IS NULL", now); err != nil {
-		return err
-	}
-
-	result, err := tx.Exec(`
-		UPDATE tasks SET ended_at = MAX(started_at, ?),
-		    quality = NULLIF(?, ''), focus = NULLIF(?, '')
-		WHERE ended_at IS NULL
-	`, now, quality, focus)
-
-	if err != nil {
-		return err
-	}
-
-	if quality != "" || focus != "" {
-		count, err := result.RowsAffected()
-
-		if err != nil {
-			return err
-		}
-
-		if count == 0 {
-			return errors.New("no active task to rate")
-		}
-	}
-
-	return nil
 }
 
 func operationTime(tx *sql.Tx) (int64, error) {

@@ -1,56 +1,34 @@
-package main
+package store
 
 import (
-	"bufio"
 	"database/sql"
 	"errors"
-	"fmt"
-	"os"
-	"strings"
-	"unicode"
 )
 
-func pauseTask(db *sql.DB, args []string) error {
+// TaskToPause returns the ID of the running task that is not paused.
+func (s *Store) TaskToPause() (int64, error) {
 	var taskID int64
-	err := db.QueryRow(`
+	err := s.db.QueryRow(`
 		SELECT id FROM tasks
 		WHERE ended_at IS NULL
 		  AND NOT EXISTS (SELECT 1 FROM pauses WHERE ended_at IS NULL)
 	`).Scan(&taskID)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return errors.New("no running task to pause")
+		return 0, errors.New("no running task to pause")
 	}
 
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	reason := ""
+	return taskID, nil
+}
 
-	if len(args) == 1 {
-		reason = args[0]
-	} else {
-		if _, err := fmt.Fprint(os.Stderr, "Pause reason (optional): "); err != nil {
-			return err
-		}
-
-		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-
-		if err != nil {
-			return fmt.Errorf("pause cancelled: %w", err)
-		}
-
-		reason = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
-	}
-
-	for _, character := range reason {
-		if unicode.IsControl(character) || character == '\u2028' || character == '\u2029' {
-			return errors.New("pause reason must be a single line without control characters")
-		}
-	}
-
-	tx, err := db.Begin()
+// Pause fails when the task from TaskToPause changed in the meantime, for
+// example while the reason was being entered.
+func (s *Store) Pause(taskID int64, reason string) error {
+	tx, err := s.db.Begin()
 
 	if err != nil {
 		return err
@@ -87,8 +65,8 @@ func pauseTask(db *sql.DB, args []string) error {
 	return tx.Commit()
 }
 
-func resumeTask(db *sql.DB) error {
-	tx, err := db.Begin()
+func (s *Store) Resume() error {
+	tx, err := s.db.Begin()
 
 	if err != nil {
 		return err

@@ -4,7 +4,7 @@ set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 if [ ! -x "$HOME/.local/bin/jamri" ]; then
-    printf 'Install jamri first with ./install.sh\n' >&2
+    printf 'Install jamri first with scripts/install.sh\n' >&2
     exit 1
 fi
 

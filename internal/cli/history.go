@@ -1,13 +1,14 @@
-package main
+package cli
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"sort"
 	"text/tabwriter"
 	"time"
+
+	"github.com/pr0sp3ro/jamri/internal/store"
 )
 
 func historyRange(args []string, now time.Time) (time.Time, time.Time, error) {
@@ -82,71 +83,15 @@ func historyArguments(args []string) ([]string, bool, error) {
 	return dates, details, nil
 }
 
-type historyPause struct {
-	start  int64
-	end    sql.NullInt64
-	reason string
-}
-
-type historyTask struct {
-	id       int64
-	name     string
-	start    int64
-	end      sql.NullInt64
-	quality  sql.NullString
-	focus    sql.NullString
-	category string
-	pauses   []historyPause
-}
-
-func readHistory(db *sql.DB, from, until time.Time, now int64) ([]historyTask, error) {
-	rows, err := db.Query(`
- SELECT t.id, t.name, t.started_at, t.ended_at, t.quality, t.focus, COALESCE(c.name, '-'),
-        p.started_at, p.ended_at, p.reason
- FROM tasks t LEFT JOIN categories c ON c.id = t.category_id LEFT JOIN pauses p ON p.task_id = t.id
- WHERE t.started_at < ?
-   AND (COALESCE(t.ended_at, ?) > ? OR t.started_at >= ?)
- ORDER BY t.started_at, t.id, p.started_at, p.id
- `, until.Unix(), now, from.Unix(), from.Unix())
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer rows.Close()
-	var tasks []historyTask
-
-	for rows.Next() {
-		var task historyTask
-		var pauseStart, pauseEnd sql.NullInt64
-		var reason sql.NullString
-
-		if err := rows.Scan(&task.id, &task.name, &task.start, &task.end, &task.quality, &task.focus, &task.category, &pauseStart, &pauseEnd, &reason); err != nil {
-			return nil, err
-		}
-
-		if len(tasks) == 0 || tasks[len(tasks)-1].id != task.id {
-			tasks = append(tasks, task)
-		}
-
-		if pauseStart.Valid {
-			last := &tasks[len(tasks)-1]
-			last.pauses = append(last.pauses, historyPause{pauseStart.Int64, pauseEnd, reason.String})
-		}
-	}
-
-	return tasks, rows.Err()
-}
-
 type historyDay struct {
 	lines  []string
 	work   int64
 	pauses int64
 }
 
-func printHistory(db *sql.DB, from, until time.Time, details bool) error {
+func printHistory(db *store.Store, from, until time.Time, details bool) error {
 	now := time.Now().Unix()
-	tasks, err := readHistory(db, from, until, now)
+	tasks, err := db.History(from, until, now)
 
 	if err != nil {
 		return err
@@ -157,12 +102,12 @@ func printHistory(db *sql.DB, from, until time.Time, details bool) error {
 	for _, task := range tasks {
 		end := now
 
-		if task.end.Valid {
-			end = task.end.Int64
+		if task.End.Valid {
+			end = task.End.Int64
 		}
 
-		end = min(max(end, task.start), until.Unix())
-		start := max(task.start, from.Unix())
+		end = min(max(end, task.Start), until.Unix())
+		start := max(task.Start, from.Unix())
 
 		if end < start || start >= until.Unix() {
 			continue
@@ -185,17 +130,17 @@ func printHistory(db *sql.DB, from, until time.Time, details bool) error {
 			var pauseLines []string
 			paused := false
 
-			for _, pause := range task.pauses {
+			for _, pause := range task.Pauses {
 				pauseEnd := now
 
-				if pause.end.Valid {
-					pauseEnd = pause.end.Int64
+				if pause.End.Valid {
+					pauseEnd = pause.End.Int64
 				} else {
 					paused = true
 				}
 
-				pauseStart := max(start, pause.start)
-				pauseEnd = min(segmentEnd, max(pause.start, pauseEnd))
+				pauseStart := max(start, pause.Start)
+				pauseEnd = min(segmentEnd, max(pause.Start, pauseEnd))
 
 				if pauseEnd <= pauseStart {
 					continue
@@ -205,7 +150,7 @@ func printHistory(db *sql.DB, from, until time.Time, details bool) error {
 				pauseSeconds += duration
 
 				if details {
-					reason := pause.reason
+					reason := pause.Reason
 
 					if reason == "" {
 						reason = "(no reason)"
@@ -213,7 +158,7 @@ func printHistory(db *sql.DB, from, until time.Time, details bool) error {
 
 					label := historyTime(pauseEnd, nextDay, from.Location())
 
-					if !pause.end.Valid && pauseEnd == now {
+					if !pause.End.Valid && pauseEnd == now {
 						label = "ongoing"
 					}
 
@@ -225,7 +170,7 @@ func printHistory(db *sql.DB, from, until time.Time, details bool) error {
 			work := max(int64(0), segmentEnd-start-pauseSeconds)
 			label := historyTime(segmentEnd, nextDay, from.Location())
 
-			if !task.end.Valid && segmentEnd == now && segmentEnd != nextDay {
+			if !task.End.Valid && segmentEnd == now && segmentEnd != nextDay {
 				label = "active"
 
 				if paused {
@@ -233,17 +178,17 @@ func printHistory(db *sql.DB, from, until time.Time, details bool) error {
 				}
 			}
 
-			line := fmt.Sprintf("%d\t%s\t%s\t%s\t%s\t%s\t%s\n", task.id, localStart.Format("15:04:05"), label,
-				formatDuration(work), formatDuration(pauseSeconds), task.category, task.name)
+			line := fmt.Sprintf("%d\t%s\t%s\t%s\t%s\t%s\t%s\n", task.ID, localStart.Format("15:04:05"), label,
+				formatDuration(work), formatDuration(pauseSeconds), task.Category, task.Name)
 			day.lines = append(day.lines, line)
 
 			if details {
-				if task.quality.Valid {
-					day.lines = append(day.lines, fmt.Sprintf("  Quality: %s\n", task.quality.String))
+				if task.Quality.Valid {
+					day.lines = append(day.lines, fmt.Sprintf("  Quality: %s\n", task.Quality.String))
 				}
 
-				if task.focus.Valid {
-					day.lines = append(day.lines, fmt.Sprintf("  Focus: %s\n", task.focus.String))
+				if task.Focus.Valid {
+					day.lines = append(day.lines, fmt.Sprintf("  Focus: %s\n", task.Focus.String))
 				}
 			}
 
